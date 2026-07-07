@@ -29,6 +29,8 @@
 #include <utility>
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
+#include <cmath>
 
 namespace fs = std::filesystem;
 
@@ -344,22 +346,43 @@ bool PHGarfield::LoadElectricFieldCorrections(const std::string& filename)
   return true;
 }
 
-double PHGarfield::InterpolateCorrectionVcm(const TH2* hist,
-                                             double r_cm,
-                                             double abs_z_cm) const
+double PHGarfield::InterpolateCorrectionVcm(
+    const TH2* hist,
+    const double r_cm,
+    const double abs_z_cm) const
 {
-  if (!hist) return 0.0;
-
-  const auto* xaxis = hist->GetXaxis();
-  const auto* yaxis = hist->GetYaxis();
-  if (r_cm < xaxis->GetXmin() || r_cm > xaxis->GetXmax() ||
-      abs_z_cm < yaxis->GetXmin() || abs_z_cm > yaxis->GetXmax())
+  if (!hist)
   {
     return 0.0;
   }
 
-  // Notebook histograms store V/m; Garfield expects V/cm.
-  return hist->Interpolate(r_cm, abs_z_cm) / 100.0;
+  const TAxis* xaxis = hist->GetXaxis();
+  const TAxis* yaxis = hist->GetYaxis();
+
+  if (!xaxis || !yaxis)
+  {
+    return 0.0;
+  }
+
+  // Interpolate safely between bin centers, not at histogram edges.
+  const double r_min = xaxis->GetBinCenter(1);
+  const double r_max = xaxis->GetBinCenter(xaxis->GetNbins());
+
+  const double z_min = yaxis->GetBinCenter(1);
+  const double z_max = yaxis->GetBinCenter(yaxis->GetNbins());
+
+  constexpr double epsilon = 1.0e-6;
+
+  const double r_eval =
+      std::clamp(r_cm, r_min + epsilon, r_max - epsilon);
+
+  const double z_eval =
+      std::clamp(std::abs(abs_z_cm),
+                 z_min + epsilon,
+                 z_max - epsilon);
+
+  // Input histogram is in V/m. Garfield expects V/cm.
+  return 0.01 * hist->Interpolate(r_eval, z_eval);
 }
 
 void PHGarfield::InitializeGas(const std::string &name)
