@@ -1,0 +1,237 @@
+#include <QA.C>
+
+#include <inttcalib/InttCalib.h>
+
+#include <ffamodules/HeadReco.h>
+#include <ffamodules/FlagHandler.h>
+#include <ffamodules/SyncReco.h>
+#include <ffamodules/CDBInterface.h>
+#include <cdbobjects/CDBTTree.h>
+
+#include <ffarawmodules/InttCheck.h>
+#include <ffarawmodules/StreamingCheck.h>
+#include <ffarawmodules/TpcCheck.h>
+
+#include <fun4all/Fun4AllDstOutputManager.h>
+#include <fun4all/Fun4AllInputManager.h>
+#include <fun4all/Fun4AllDstInputManager.h>
+#include <fun4all/Fun4AllOutputManager.h>
+#include <fun4all/Fun4AllServer.h>
+#include <fun4all/Fun4AllUtils.h>
+
+#include <fun4allraw/Fun4AllStreamingInputManager.h>
+#include <fun4allraw/InputManagerType.h>
+#include <fun4allraw/SingleGl1PoolInput.h>
+#include <fun4allraw/SingleInttPoolInput.h>
+#include <fun4allraw/SingleMicromegasPoolInput.h>
+#include <fun4allraw/SingleMvtxPoolInput.h>
+#include <fun4allraw/SingleTpcPoolInput.h>
+#include <fun4allraw/SingleTpcTimeFrameInput.h>
+
+#include <phool/recoConsts.h>
+#include <GlobalVariables.C>
+
+#include </sphenix/user/mitrankov/garf/PHGarfield/PHGarfield.h>
+
+R__LOAD_LIBRARY(libfun4all.so)
+R__LOAD_LIBRARY(libfun4allutils.so)
+R__LOAD_LIBRARY(libffamodules.so)
+R__LOAD_LIBRARY(libfun4allraw.so)
+R__LOAD_LIBRARY(libffarawmodules.so)
+R__LOAD_LIBRARY(libcdbobjects.so)
+R__LOAD_LIBRARY(libffamodules.so)
+R__LOAD_LIBRARY(/sphenix/user/mitrankov/garf/PHGarfield/install/lib/libPHGarfield.so)
+
+
+#define Nebdc 24
+#define Nserver 2
+
+// Global namespace to assist drawing...
+TPolyLine3D *npoly3[48];
+TPolyLine3D *spoly3[48];
+TPolyLine   *npoly2[48];
+TPolyLine   *spoly2[48];
+TGeoTube    *tubby;
+TCanvas     *canny;
+TCanvas     *canny2;
+
+TBox        *boxer1;
+TBox        *boxer2;
+
+void TestFieldMap_spacecharge(const double keff=1.0)
+{
+  recoConsts* rc = recoConsts::instance();
+
+  rc->set_StringFlag("CDB_GLOBALTAG","FieldMapTest");   // Weird offset field map
+  //rc->set_StringFlag("CDB_GLOBALTAG","newcdbtag");      //sPHENIX default
+  rc->set_uint64Flag("TIMESTAMP",1);
+
+  auto *cdb = CDBInterface::instance();
+  std::string url = cdb->getUrl("FIELDMAP_TRACKING");
+  std::cout << "Field map URL:\n" << url << std::endl;
+
+  Fun4AllServer *se = Fun4AllServer::instance();
+
+  Enable::QA  = false;
+  Enable::CDB = true;
+  
+  // Register a whole slew of input managers...
+  // NOTE:  This depends upon the requested files being in frog.  Ribbit.
+
+  if(true){
+  Fun4AllInputManager* in[Nebdc]; 
+  for (unsigned int ebdc=0; ebdc<2; ebdc++)
+    {
+      for (unsigned int server=0; server<1; server++)
+	{
+	  auto nextinput = std::format("ebdc{:02d}_{:1d}", ebdc, server);
+	  //sprintf(nextfile,"DST_STREAMING_EVENT_ebdc%02d_%01d_run3line_laser_ana540_nocdbtag_v001-00064890-00000.root",ebdc,server);  // Line Laser
+	  std::string nextfile = std::format(
+	     "DST_STREAMING_EVENT_ebdc{:02}_{:1}_run3auau_ana514_nocdbtag_v001-00075570-00000.root", ebdc, server);
+	  std::cout << nextfile << " " << nextinput << std::endl;
+	  in[ebdc] = new Fun4AllDstInputManager(nextinput);
+	  in[ebdc]->fileopen(nextfile);
+	  se->registerInputManager(in[ebdc]);
+	}
+    }}
+  else{
+	  std::string filename = "/sphenix/user/mitrankova/F4A/macro/output_DST/HITS_ppFieldOn_79513_0.root";
+  auto *hitsinclus = new Fun4AllDstInputManager("ClusterInputManager");
+  hitsinclus->fileopen(filename);
+  se->registerInputManager(hitsinclus);
+  }
+
+  // Now register a flag handler because MAAABE it will make the CDB work correctly?
+  //SubsysReco *fh = new FlagHandler();
+  //se->registerSubsystem(fh);
+  
+  // Register my analysis module.
+  // Axisymmetric space-charge field correction written by the notebook.
+  // k_eff scales only the correction; k_eff = 0 gives the nominal field.
+  const std::string electricFieldMap = "include/sphenix_rossegger_garfield_field.root";
+      //"include/sphenix_axisymmetric_spacecharge_kernel.root";
+  const double k_eff = keff;
+
+  PHGarfield *phg = new PHGarfield(
+      "PHGarfield", electricFieldMap, k_eff);
+  TVector3 Northxyz; Northxyz.SetXYZ(-0.001, -0.001,  1123.109);//mm
+  TVector3 Southxyz; Southxyz.SetXYZ(-3.354, -0.673, -1137.382);//mm
+  TVector3 center=0.5*(Northxyz+Southxyz);//0.5 to get the center of the TPC
+  center*=0.1;//to convert to cm
+  phg->MoveTpc(center.X(),center.Y(),center.Z());
+  phg->RotateTpc(0,0.001485,0);//per JohnH
+  phg->RotateTpc(0.000298,0,0);//per JohnH
+  se->registerSubsystem(phg);
+
+  se->run(4);
+	
+     std::string Polyfile_name = "reverse_drift_Polyfile_noTube.root";
+     std::unique_ptr<TFile> Polyfile(TFile::Open(Polyfile_name.c_str(),"recreate"));  
+     Polyfile->cd();
+    
+      canny  = new TCanvas("canny","canny",3000,2500);
+  canny2 = new TCanvas("canny2","canny2",3000,2500);
+  tubby  = new TGeoTube("tubby",20,80,110);
+
+  canny->cd();
+  tubby->Draw();
+
+  canny2->cd();
+  //gPad->DrawFrame(-150., -10., 150., 10.);
+  TH1* frame = gPad->DrawFrame(-110., 20., 110., 80.); 
+  frame->GetXaxis()->SetTitle("z [cm]");
+  frame->GetYaxis()->SetTitle("r [cm]");
+  boxer1 = new TBox(-102,20,102,78);
+  boxer1->Draw();
+  boxer2 = new TBox(-102,-78,102,-20);
+  boxer2->Draw("same");
+  
+  for (int i=0; i<48; i++)
+    {
+      canny->cd();
+      npoly3[i] = phg->ReverseDrift(0,phg->GetRadius(i),102);
+      npoly3[i]->SetLineColor(kRed);
+      npoly3[i]->SetLineWidth(2);
+      npoly3[i]->Draw("same");
+
+      canny2->cd();
+      int N = npoly3[i]->GetN();
+      float *p =  npoly3[i]->GetP();
+      float x[500];
+      float y[500];
+      float z[500];
+      for (int j=0; j<N; j++)
+      {
+	x[j] = p[3*j+0];
+	y[j] = p[3*j+1];
+	z[j] = p[3*j+2];
+	/*
+	std::cout << j
+            << "  " << x[j]
+            << "  " << y[j]
+            << "  " << z[j]
+            << std::endl;
+	*/
+      }
+      npoly2[i] = new TPolyLine(N,z,y);
+      npoly2[i]->SetLineColor(kRed);
+      npoly2[i]->SetLineWidth(2);
+      npoly2[i]->Draw("Lsame");
+    }
+
+  for (int i=0; i<48; i++)
+    {
+      canny->cd();
+      spoly3[i] = phg->ReverseDrift(0,phg->GetRadius(i),-102);
+      spoly3[i]->SetLineColor(kCyan);
+      spoly3[i]->SetLineWidth(2);
+      spoly3[i]->Draw("same");
+
+      canny2->cd();
+      int N = spoly3[i]->GetN();
+      float *p =  spoly3[i]->GetP();
+      float x[500];
+      float y[500];
+      float z[500];
+      for (int j=0; j<N; j++)
+      {
+	x[j] = p[3*j+0];
+	y[j] = p[3*j+1];
+	z[j] = p[3*j+2];
+	/*
+	std::cout << j
+            << "  " << x[j]
+            << "  " << y[j]
+            << "  " << z[j]
+            << std::endl;
+	*/
+      }
+      spoly2[i] = new TPolyLine(N,z,y);
+      spoly2[i]->SetLineColor(kCyan);
+      spoly2[i]->SetLineWidth(2);
+      spoly2[i]->Draw("Lsame");
+    }
+     
+     // Force ROOT to finish painting all pads before serialization.
+canny->cd();
+canny->Modified();
+canny->Update();
+
+canny2->cd();
+canny2->Modified();
+canny2->Update();
+
+canny2->SaveAs(Form("PL_newer_keff_%g.pdf", k_eff));
+
+// Make sure the output file is the active ROOT directory.
+Polyfile->cd();
+
+// Write both canvases exactly as currently displayed.
+canny->Write("canny", TObject::kOverwrite);
+canny2->Write("canny2", TObject::kOverwrite);
+
+Polyfile->Write();
+Polyfile->Close();
+
+ // se->dumpHistos("Looker.root");
+}
