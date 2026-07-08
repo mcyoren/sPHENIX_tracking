@@ -7,6 +7,9 @@
 #include <numbers>
 #include <string>
 
+#include <TRotation.h>
+#include <TVector3.h>
+
 class CDBTTree;
 class PHField3DCartesian;
 class TPolyLine3D;
@@ -35,9 +38,24 @@ class PHGarfield : public SubsysReco
   void PrintGarfield(double x, double y, double z) const;
   void PrintGasSummary() const;
 
+  // Rigid-body placement of the TPC and magnetic-field map.
+  // Units are cm and radians.  Garfield drift coordinates remain in the
+  // local TPC frame; these transforms are used only to sample B(x).
+  void MoveMagnet(double x_cm, double y_cm, double z_cm);
+  void RotateMagnet(double theta_x, double theta_y, double theta_z);
+  void MoveTpc(double x_cm, double y_cm, double z_cm);
+  void RotateTpc(double theta_x, double theta_y, double theta_z);
+
   //  These are left in public namespace for easy plotting macros...
   //  The user is encouraged to add more routine to fit their analysis goals...
-  TPolyLine3D *ReverseDrift(double x_cm, double y_cm, double z_cm, double step_ns = 50.0);  // Drifts electrons from some initial point until they hit a detector boundary...
+  // Existing macros should call this one.  Input and returned polyline are in
+  // local TPC/Garfield coordinates.
+  TPolyLine3D *ReverseDrift(double x_cm, double y_cm, double z_cm, double step_ns = 50.0);
+
+  // Debug/visualization helper.  Input and returned polyline are in global
+  // detector coordinates.  Internally the drift is still computed in local TPC
+  // coordinates to keep the Garfield gas tables valid.
+  TPolyLine3D *ReverseDriftGlobalCoords(double x_cm, double y_cm, double z_cm, double step_ns = 50.0);
 
   double GetRadius(size_t index) const {return radii.at(index);}
 
@@ -53,6 +71,10 @@ class PHGarfield : public SubsysReco
   void InitializeGas(const std::string &name);  // Accepts a file or a directory
   bool LoadElectricFieldCorrections(const std::string &filename);
   double InterpolateCorrectionVcm(const TH2 *hist, double r_cm, double abs_z_cm) const;
+  TVector3 TpcPointToGlobalPoint(double x_cm, double y_cm, double z_cm) const;
+  TVector3 GlobalPointToTpcPoint(double x_cm, double y_cm, double z_cm) const;
+  TVector3 TpcPointToMagnetFieldMapPoint(double x_cm, double y_cm, double z_cm) const;
+  TVector3 MagnetFieldMapVectorToTpcVector(double bx, double by, double bz) const;
   void FillRadii();
   static double bounder(double phi, double phi_min);
 
@@ -62,6 +84,15 @@ class PHGarfield : public SubsysReco
   Garfield::MediumMagboltz *m_gas{nullptr};       // This is the pre-tabulated gas properties required by Garfield...
   std::string m_defaultGasfile;
   bool m_GasFilesLoaded{false};
+
+  // Transform convention:
+  //   global = rotation * local + translation
+  // tpcrot/tpcpos place the local TPC frame in the global detector frame.
+  // magrot/magpos place the magnetic-field map frame in the same global frame.
+  TVector3 m_magpos{0.0, 0.0, 0.0};
+  TRotation m_magrot;
+  TVector3 m_tpcpos{0.0, 0.0, 0.0};
+  TRotation m_tpcrot;
 
   // Axisymmetric space-charge correction maps.
   // Histograms are cloned from the input ROOT file and owned here.
