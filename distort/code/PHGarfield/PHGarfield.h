@@ -26,7 +26,8 @@ class PHGarfield : public SubsysReco
  public:
   PHGarfield(const std::string &name = "PHGarfield",
              const std::string &electricFieldMap = "",
-             double spaceChargeScale = 1.0);
+             double spaceChargeScale_side0 = 1.0,
+             double spaceChargeScale_side1 = 1.0);
   ~PHGarfield() override;
 
   int InitRun(PHCompositeNode *) override;
@@ -45,6 +46,7 @@ class PHGarfield : public SubsysReco
   void RotateMagnet(double theta_x, double theta_y, double theta_z);
   void MoveTpc(double x_cm, double y_cm, double z_cm);
   void RotateTpc(double theta_x, double theta_y, double theta_z);
+  void SetCMVoltageDefault(double voltage) { m_CMVoltageDefault = voltage; }
 
   //  These are left in public namespace for easy plotting macros...
   //  The user is encouraged to add more routine to fit their analysis goals...
@@ -61,9 +63,17 @@ class PHGarfield : public SubsysReco
 
   // ROOT map must contain QA/hErDefault and QA/hEzDefault.
   // The histograms are expected in cm on the axes and V/m in the bins.
-  void SetElectricFieldMap(const std::string &filename) { m_electricFieldMap = filename; }
-  void SetSpaceChargeScale(double value) { m_spaceChargeScale = value; }
-  double GetSpaceChargeScale() const { return m_spaceChargeScale; }
+  void SetElectricFieldMap(const std::string &filename) { m_electricFieldMap = filename; }void SetSpaceChargeScale(double value)
+  {
+    m_spaceChargeScale_side0 = value;
+    m_spaceChargeScale_side1 = value;
+  }
+
+  void SetSpaceChargeScaleSide0(double value) { m_spaceChargeScale_side0 = value; }
+  void SetSpaceChargeScaleSide1(double value) { m_spaceChargeScale_side1 = value; }
+
+  double GetSpaceChargeScaleSide0() const { return m_spaceChargeScale_side0; }
+  double GetSpaceChargeScaleSide1() const { return m_spaceChargeScale_side1; }
 
  private:
   void GetMagneticFieldTesla(double x_cm, double y_cm, double z_cm, double &bx_t, double &by_t, double &bz_t) const;      // Feeds magnetic field to Garfield
@@ -97,7 +107,9 @@ class PHGarfield : public SubsysReco
   // Axisymmetric space-charge correction maps.
   // Histograms are cloned from the input ROOT file and owned here.
   std::string m_electricFieldMap;
-  double m_spaceChargeScale{1.0};
+  double m_spaceChargeScale_side0{1.0};  // south, z < 0
+  double m_spaceChargeScale_side1{1.0};  // north, z > 0
+  double m_CMVoltageDefault{432.8};  // V/cm, nominal TPC field
   TH2 *m_erCorrection{nullptr};  // radial correction, input bins in V/m
   TH2 *m_ezCorrection{nullptr};  // local longitudinal correction, input bins in V/m
 
