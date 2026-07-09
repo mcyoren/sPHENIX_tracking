@@ -58,7 +58,7 @@ TCanvas     *canny2;
 TBox        *boxer1;
 TBox        *boxer2;
 
-void TestFieldMap_spacecharge(const double keff=1.0)
+void TestFieldMap_spacecharge(const double keff_side0=1.0, const double keff_side1=1.0)
 {
   recoConsts* rc = recoConsts::instance();
 
@@ -110,10 +110,11 @@ void TestFieldMap_spacecharge(const double keff=1.0)
   // k_eff scales only the correction; k_eff = 0 gives the nominal field.
   const std::string electricFieldMap = "include/sphenix_rossegger_garfield_field.root";
       //"include/sphenix_axisymmetric_spacecharge_kernel.root";
-  const double k_eff = keff;
+  const double k_eff_side0 = keff_side0;  // south, z < 0
+  const double k_eff_side1 = keff_side1;  // north, z >
 
   PHGarfield *phg = new PHGarfield(
-      "PHGarfield", electricFieldMap, k_eff);
+      "PHGarfield", electricFieldMap, k_eff_side0, k_eff_side1);
   TVector3 Northxyz; Northxyz.SetXYZ(-0.001, -0.001,  1123.109);//mm
   TVector3 Southxyz; Southxyz.SetXYZ(-3.354, -0.673, -1137.382);//mm
   TVector3 center=0.5*(Northxyz+Southxyz);//0.5 to get the center of the TPC
@@ -121,6 +122,7 @@ void TestFieldMap_spacecharge(const double keff=1.0)
   phg->MoveTpc(center.X(),center.Y(),center.Z());
   phg->RotateTpc(0,0.001485,0);//per JohnH
   phg->RotateTpc(0.000298,0,0);//per JohnH
+  phg->SetCMVoltageDefault(432.8);//per Grafana
   se->registerSubsystem(phg);
 
   se->run(4);
@@ -221,7 +223,7 @@ canny2->cd();
 canny2->Modified();
 canny2->Update();
 
-canny2->SaveAs(Form("PL_newer_keff_%g.pdf", k_eff));
+canny2->SaveAs(Form("PL_newer_V_keff_%g_%g.pdf", k_eff_side0, k_eff_side1));
 
 // Make sure the output file is the active ROOT directory.
 Polyfile->cd();
