@@ -3,18 +3,13 @@
 #include <fun4all/SubsysReco.h>
 #include <trackbase/TrkrDefs.h>
 
-#include <memory>
 #include <string>
 #include <vector>
 
-class FinalTrack;
-class FullTrack;
 class FullTrackContainer;
 class IdealPadMap;
 class PHCompositeNode;
 class PHGarfield;
-class FinalTrackContainer;
-class TpcPolyClusterTrack;
 class TpcPolyClusterTrackContainer;
 class TrkrHitSetContainer;
 
@@ -29,7 +24,6 @@ class TpcPolyClusterizer : public SubsysReco
 
   void setInputNodeName(const std::string& n) { m_inputNodeName = n; }
   void setOutputNodeName(const std::string& n) { m_outputNodeName = n; }
-  void setFinalTrackNodeName(const std::string& n) { m_finalTrackNodeName = n; }
   void setT0(double v) { m_t0 = v; }
   void setTpcAdcClock(double v) { m_tpcAdcClock = v; }
   void setReverseDriftStepNs(double v) { m_reverseDriftStepNs = v; }
@@ -45,6 +39,10 @@ class TpcPolyClusterizer : public SubsysReco
     TrkrDefs::hitsetkey hitsetkey {0};
     TrkrDefs::hitkey hitkey {0};
     unsigned int layer {0};
+    unsigned int side {0};
+    unsigned int pad {0};
+    unsigned int tbin {0};
+    double adc {0.0};
     double x {0.0};
     double y {0.0};
     double z {0.0};
@@ -62,25 +60,31 @@ class TpcPolyClusterizer : public SubsysReco
     double rms_z {0.0};
   };
 
+  struct ClusterParameters
+  {
+    double adc {0.0};
+    unsigned int phi_width {0};
+    unsigned int time_width {0};
+    double phase {0.0};
+  };
+
   int getNodes(PHCompositeNode*);
   int createNodes(PHCompositeNode*);
-  bool make_xyz_point(TrkrDefs::hitsetkey hsk, TrkrDefs::hitkey hk, int side, Point& p) const;
+  bool make_xyz_point(TrkrDefs::hitsetkey hsk, TrkrDefs::hitkey hk, Point& p) const;
+  ClusterParameters make_cluster_parameters(const std::vector<Point>& points, const Centroid& centroid, int side) const;
   static Centroid make_centroid(const std::vector<Point>& points);
-  FinalTrack* fit_cluster_track(const FullTrack* full, const TpcPolyClusterTrack* cluster_track) const;
 
   std::string m_inputNodeName;
   std::string m_outputNodeName;
-  std::string m_finalTrackNodeName;
   FullTrackContainer* m_fullTracks {nullptr};
   TpcPolyClusterTrackContainer* m_clusterTracks {nullptr};
-  FinalTrackContainer* m_finalTracks {nullptr};
   TrkrHitSetContainer* m_hits {nullptr};
   IdealPadMap* m_idealPadMap {nullptr};
   PHGarfield* m_garfield {nullptr};
   unsigned int m_event {0};
   double m_t0 {6};
-  double m_tpcAdcClock {56.881262};
-  double m_reverseDriftStepNs {56.881262};
+  double m_tpcAdcClock {56.883};//50.037280//53.326184//56.881262//56.883 from charles
+  double m_reverseDriftStepNs {56.883};
   double m_startZSouth {-102.325};
   double m_startZNorth {102.325};
 };
