@@ -98,61 +98,61 @@ namespace
     h.h_mass_vs_v0pt = new TH2F(
       "h_mass_Kshort_vs_v0_pt",
       "K^{0}_{S} mass vs V0 p_{T}" + tag + ";p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}]",
-      100, 0., 5., 200, 0., 2.);
+      100, 0., 5., 1000, 0., 2.);
 
     h.h_mass_vs_v0pt_vs_daughterPtMin = new TH3F(
       "h_mass_vs_v0pt_vs_daughter_pt_min",
       "Mass vs V0 p_{T} vs lower daughter p_{T}" + tag +
       ";p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}];min(p_{T,1},p_{T,2}) [GeV/c]",
-      50, 0., 5., 200, 0., 2., 40, 0., 2.);
+      50, 0., 5., 1000, 0., 2., 40, 0., 2.);
 
     h.h_mass_vs_v0pt_vs_deltaPcaZ = new TH3F(
       "h_mass_vs_v0pt_vs_abs_delta_pca_z",
       "Mass vs V0 p_{T} vs |PCA_{z,1}-PCA_{z,2}|" + tag +
       ";p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}];|#Delta PCA_{z}| [cm]",
-      50, 0., 5., 200, 0., 2., 40, 0., 4.);
+      50, 0., 5., 1000, 0., 2., 40, 0., 4.);
 
     h.h_mass_vs_v0pt_vs_decayRadius = new TH3F(
       "h_mass_vs_v0pt_vs_decay_radius",
       "Mass vs V0 p_{T} vs decay radius" + tag +
       ";p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}];decay radius [cm]",
-      50, 0., 5., 200, 0., 2., 50, 0., 50.);
+      50, 0., 5., 1000, 0., 2., 50, 0., 50.);
 
     h.h_mass_vs_v0pt_vs_alpha = new TH3F(
       "h_mass_vs_v0pt_vs_abs_alpha",
       "Mass vs V0 p_{T} vs |#alpha|" + tag +
       ";p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}];|#alpha|",
-      50, 0., 5., 200, 0., 2., 40, 0., 1.);
+      50, 0., 5., 1000, 0., 2., 40, 0., 1.);
 
     h.h_mass_vs_v0pt_vs_pairDCA = new TH3F(
       "h_mass_vs_v0pt_vs_abs_pairDCA",
       "Mass vs V0 p_{T} vs |pair DCA|" + tag +
       ";p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}];|pair DCA| [cm]",
-      50, 0., 5., 200, 0., 2., 50, 0., 10.);
+      50, 0., 5., 1000, 0., 2., 50, 0., 10.);
 
     h.h_mass_vs_v0pt_vs_DIRA = new TH3F(
       "h_mass_vs_v0pt_vs_DIRA",
       "Mass vs V0 p_{T} vs DIRA" + tag +
       ";p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}];DIRA",
-      50, 0., 5., 200, 0., 2., 50, 0.5, 1.0);
+      50, 0., 5., 1000, 0., 2., 50, 0.5, 1.0);
 
     h.h_mass_vs_v0pt_vs_npointsMin = new TH3F(
       "h_mass_vs_v0pt_vs_npoints_min",
       "Mass vs V0 p_{T} vs lower daughter N points" + tag +
       ";p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}];min(N_{1},N_{2})",
-      50, 0., 5., 200, 0., 2., 55, 0., 55.);
+      50, 0., 5., 1000, 0., 2., 55, 0., 55.);
 
     h.h_mass_vs_v0pt_vs_qualityMax = new TH3F(
       "h_mass_vs_v0pt_vs_quality_max",
       "Mass vs V0 p_{T} vs worse daughter quality" + tag +
       ";p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}];max(quality_{1},quality_{2})",
-      50, 0., 5., 200, 0., 2., 50, 0., 5.);
+      50, 0., 5., 1000, 0., 2., 50, 0., 5.);
 
     h.h_mass_vs_v0pt_vs_pcaZ = new TH3F(
       "h_mass_vs_v0pt_vs_pca_z",
       "Mass vs V0 p_{T} vs candidate PCA z" + tag +
       ";p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}];PCA_{z} [cm]",
-      50, 0., 5., 200, 0., 2., 60, -30., 30.);
+      50, 0., 5., 1000, 0., 2., 60, -30., 30.);
 
     return h;
   }
@@ -250,9 +250,9 @@ void MakeK0sPairHistograms(const char* inputDir = ".",
   chain.SetBranchAddress("npoints2", &npoints2);
 
   const std::vector<Selection> selections = {
-    {"loose",    20.0, 1.50, 0.20, 4.0, 0.90, 6.0, 0.70, 2.0, 20},
-    {"baseline", 15.0, 0.50, 0.30, 6.0, 0.80, 4.0, 0.80, 1.0, 30},
-    {"tight",    10.0, 0.30, 0.40, 8.0, 0.70, 1.0, 0.90, 0.7, 35}
+    {"loose",    20.0, 1.50, 0.20, 4.0, 0.90, 6.0, 0.70, 20.0, 20},//2.0
+    {"baseline", 15.0, 0.50, 0.30, 6.0, 0.80, 4.0, 0.80, 17.0, 30},//1.0
+    {"tight",    10.0, 0.30, 0.40, 6.0, 0.70, 1.0, 0.80, 12.7, 30}//0.7
   };
 
   gSystem->mkdir(outputDir, kTRUE);
@@ -284,7 +284,7 @@ void MakeK0sPairHistograms(const char* inputDir = ".",
   //   like sign:   charge1*charge2 > 0  (++ and -- combined)
   output->cd();
   auto makeExactHist = [](const char* name, const char* title) {
-    return new TH2F(name, title, 200, 0., 5., 200, 0., 2.);
+    return new TH2F(name, title, 200, 0., 5., 1000, 0., 2.);
   };
 
   TH2F* h_exact1_unlike = makeExactHist(
@@ -316,7 +316,7 @@ void MakeK0sPairHistograms(const char* inputDir = ".",
     chain.GetEntry(entry);
     if (entry % 100000 == 0)
       std::cout << "Processing " << entry << " / " << nEntries << std::endl;
-
+    if (entry > 20e8) break; // safety limit for testing
     const auto categories = chargeCategories(charge1, charge2);
     if (categories.empty()) continue;
 
@@ -349,7 +349,7 @@ void MakeK0sPairHistograms(const char* inputDir = ".",
       absPairDCA < 1.0 &&
       dira > 0.8 &&
       npoints1 > 30 && npoints2 > 30 &&
-      quality1 < 1.0 && quality2 < 1.0;
+      quality1 < 20.0 && quality2 < 20.0;
 
     // Exact user cut 2 (the repeated "peak above" cut is identical):
     // -15<pca_z<0, |Delta pca_z|<0.5, daughter pT>0.3,
