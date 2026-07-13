@@ -318,10 +318,7 @@ void MakeResidualHistograms(
     const double phi_px_py = std::atan2(px, py);
     const double qOverPt = (pt != 0.) ? charge / pt : 0.;
     const double p = std::sqrt(pt * pt + pz * pz);
-    const double _
-
-
- = charge * (1. - 2. * side) * p;
+    const double signedP = charge * (1. - 0. * side) * p;
 
     // Original selection:
     // ntpc_clusters>30 && pt>0.5 && abs(zDCA)<2

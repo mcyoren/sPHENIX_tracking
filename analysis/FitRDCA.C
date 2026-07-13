@@ -43,6 +43,7 @@ namespace
   // p[1]       = constant offset
   // p[2]       = main sine phase
   // p[3]...p[14] = amplitudes of sin(12*phi) in sectors 0...11
+  // p[15]      = common sector phase
   //
   // Sector 0 is centered at phi = 0.
   Double_t IndividualSectorFit(Double_t* xx, Double_t* p)
@@ -66,7 +67,7 @@ namespace
         p[0] * std::sin(phi + p[2]);
 
     const double sectorModulation =
-        p[3 + sector] * std::sin(12.0 * phi);
+        p[3 + sector] * std::sin(12.0 * phi + p[4]);
 
     return mainModulation + p[1] + sectorModulation;
   }
@@ -381,7 +382,7 @@ namespace
 
     TF1 commonFit(
         Form("commonFit_%s", category.Data()),
-        "[0]*sin(x+[2]) + [1] + [3]*sin(12*x)",
+        "[0]*sin(x+[2]) + [1] + [3]*sin(12*x+[4])",
         xmin,
         xmax);
 
@@ -401,6 +402,10 @@ namespace
         3,
         "Common sector amplitude");
 
+    commonFit.SetParName(
+        4,
+        "Common sector phase");
+
     commonFit.SetParameter(
         0,
         fit3.GetParameter(0));
@@ -416,6 +421,10 @@ namespace
     commonFit.SetParameter(
         3,
         0.1);
+
+    commonFit.SetParameter(
+        4,
+        0.0);
 
     commonFit.SetParLimits(
         2,
@@ -455,6 +464,9 @@ namespace
     const double initialSectorAmplitude =
         commonFit.GetParameter(3);
 
+    const double initialSectorPhase =
+        commonFit.GetParameter(4);
+
     std::cout
         << "\nStabilized common-fit parameters:\n"
         << "  Main amplitude          = "
@@ -465,6 +477,8 @@ namespace
         << initialMainPhase
         << "\n  Common sector amplitude = "
         << initialSectorAmplitude
+        << "\n  Common sector phase     = "
+        << initialSectorPhase
         << std::endl;
 
     // ============================================================
@@ -515,6 +529,14 @@ namespace
         2,
         -TMath::Pi(),
         TMath::Pi());
+
+    finalFit->SetParameter(
+        3,
+        initialSectorAmplitude);
+
+    finalFit->SetParameter(
+        4,
+        initialSectorPhase);
 
     for (int sector = 0;
          sector < NSectors;
