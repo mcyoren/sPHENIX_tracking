@@ -342,7 +342,7 @@ void MakeResidualHistograms(
     const bool passDedx =
       ntpc_clusters > 25 &&
       std::abs(rDCA_zero) < 2. &&
-      std::abs(zDCA) < 2e6;
+      std::abs(zDCA) < 2;
 
     // Original cluster residual selection.
     const bool passClusterResidual =

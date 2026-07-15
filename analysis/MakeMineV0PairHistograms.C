@@ -62,7 +62,7 @@ namespace
     double maxAbsPairDCA;
     double minDIRA;
     double maxQuality;
-    int minnpoints;
+    int minNclusters;
   };
 
   struct HistSet
@@ -141,40 +141,40 @@ namespace
       "h_mass_Kshort",
       "K^{0}_{S} invariant mass" + tag +
         ";m_{#pi^{+}#pi^{-}} [GeV/c^{2}];pairs",
-      500, 0.0, 1.0);
+      200, 0.0, 2.0);
 
     h.h_lambda_mass = new TH1F(
       "h_mass_Lambda",
       "#Lambda invariant mass, p_{T}(p)>p_{T}(#pi)" + tag +
         ";m_{p#pi^{-}} [GeV/c^{2}];pairs",
-      300, 1.0, 1.3);
+      200, 1.0, 1.3);
 
     h.h_antilambda_mass = new TH1F(
       "h_mass_AntiLambda",
       "#bar{#Lambda} invariant mass, p_{T}(#bar{p})>p_{T}(#pi)" + tag +
         ";m_{#bar{p}#pi^{+}} [GeV/c^{2}];pairs",
-      300, 1.0, 1.3);
+      200, 1.0, 1.3);
 
     h.h_k0s_mass_vs_v0pt = new TH2F(
       "h_mass_Kshort_vs_v0_pt",
       "K^{0}_{S} mass vs V0 p_{T}" + tag +
         ";p_{T}^{V0} [GeV/c];m_{#pi^{+}#pi^{-}} [GeV/c^{2}]",
-      50, 0., 5.,
-      500, 0.0, 1.0);
+      100, 0., 5.,
+      200, 0.0, 2.0);
 
     h.h_lambda_mass_vs_v0pt = new TH2F(
       "h_mass_Lambda_vs_v0_pt",
       "#Lambda mass vs V0 p_{T}, p_{T}(p)>p_{T}(#pi)" + tag +
         ";p_{T}^{V0} [GeV/c];m_{p#pi^{-}} [GeV/c^{2}]",
-      50, 0., 5.,
-      300, 1.0, 1.3);
+      100, 0., 5.,
+      200, 1.0, 1.3);
 
     h.h_antilambda_mass_vs_v0pt = new TH2F(
       "h_mass_AntiLambda_vs_v0_pt",
       "#bar{#Lambda} mass vs V0 p_{T}, p_{T}(#bar{p})>p_{T}(#pi)" + tag +
         ";p_{T}^{V0} [GeV/c];m_{#bar{p}#pi^{+}} [GeV/c^{2}]",
-      50, 0., 5.,
-      300, 1.0, 1.3);
+      100, 0., 5.,
+      200, 1.0, 1.3);
 
     h.h_armenteros_podolanski = new TH2F(
       "h_armenteros_podolanski",
@@ -228,7 +228,7 @@ namespace
                        const double absPairDCA,
                        const double dira,
                        const double qualityMax,
-                       const int npointsMin)
+                       const int nclustersMin)
   {
     return
       std::abs(pcaZ) < selection.maxAbsPcaZ &&
@@ -239,11 +239,11 @@ namespace
       absPairDCA < selection.maxAbsPairDCA &&
       dira > selection.minDIRA &&
       qualityMax < selection.maxQuality &&
-      npointsMin > selection.minnpoints;
+      nclustersMin > selection.minNclusters;
   }
 }
 
-void MakeK0sPairHistograms(
+void MakeMineV0PairHistograms(
   const char* inputDir = ".",
   const char* filePattern = "*.root",
   const char* outputDir = "output",
@@ -289,8 +289,8 @@ void MakeK0sPairHistograms(
     "alpha",
     "qT",
     "pairDCA",
-    "npoints1",
-    "npoints2",
+    "nclusters1",
+    "nclusters2",
     "charge1",
     "charge2",
     "quality1",
@@ -342,11 +342,16 @@ void MakeK0sPairHistograms(
   Float_t quality1 = 0.f;
   Float_t quality2 = 0.f;
 
-  Float_t charge1 = 0;
-  Float_t charge2 = 0;
-  Short_t npoints1 = 0;
-  Short_t npoints2 = 0;
+  Short_t charge1 = 0;
+  Short_t charge2 = 0;
+  UShort_t nclusters1 = 0;
+  UShort_t nclusters2 = 0;
+  UShort_t npoints1 = 0;
+  UShort_t npoints2 = 0;
 
+  const bool hasNpoints =
+    branchExists(chain, "npoints1") &&
+    branchExists(chain, "npoints2");
 
   chain.SetBranchAddress("mass_Kshort", &mass_Kshort);
   chain.SetBranchAddress("mass_Lambda", &mass_Lambda);
@@ -378,9 +383,21 @@ void MakeK0sPairHistograms(
   chain.SetBranchAddress("charge2", &charge2);
   chain.SetBranchAddress("quality1", &quality1);
   chain.SetBranchAddress("quality2", &quality2);
-  chain.SetBranchAddress("npoints1", &npoints1);
-  chain.SetBranchAddress("npoints2", &npoints2);
+  chain.SetBranchAddress("nclusters1", &nclusters1);
+  chain.SetBranchAddress("nclusters2", &nclusters2);
 
+  if (hasNpoints)
+  {
+    chain.SetBranchAddress("npoints1", &npoints1);
+    chain.SetBranchAddress("npoints2", &npoints2);
+  }
+  else
+  {
+    std::cout
+      << "WARNING: npoints1/npoints2 branches are absent; "
+      << "exactCut1 and exactCut2 will use nclusters1/nclusters2 instead."
+      << std::endl;
+  }
 
   // Ten cumulative cut levels.
   //
@@ -623,8 +640,8 @@ void MakeK0sPairHistograms(
     const double qualityMax =
       std::max(quality1, quality2);
 
-    const int npointsMin =
-      std::min<int>(npoints1, npoints2);
+    const int nclustersMin =
+      std::min<int>(nclusters1, nclusters2);
 
     const double v0Momentum =
       std::sqrt(
@@ -669,9 +686,13 @@ void MakeK0sPairHistograms(
       }
     }
 
-    const int effectiveNpoints1 = npoints1;
+    const int effectiveNpoints1 =
+      hasNpoints ? static_cast<int>(npoints1)
+                 : static_cast<int>(nclusters1);
 
-    const int effectiveNpoints2 = npoints2;
+    const int effectiveNpoints2 =
+      hasNpoints ? static_cast<int>(npoints2)
+                 : static_cast<int>(nclusters2);
 
     const bool exactCut1 =
       pca_z > -15.f && pca_z < 15.f &&
@@ -734,7 +755,7 @@ void MakeK0sPairHistograms(
             absPairDCA,
             dira,
             qualityMax,
-            npointsMin))
+            nclustersMin))
       {
         continue;
       }
