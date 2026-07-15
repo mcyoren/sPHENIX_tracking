@@ -250,6 +250,7 @@ void MakeK0sPairHistograms(
   const char* outputName = "v0_pair_histograms.root",
   const char* treeName = "pairTree",
   const bool requireProtonHigherPt = true,
+  const bool ScaleQualityBy10 = false,
   const Long64_t maxEntries = -1)
 {
   TH1::AddDirectory(kTRUE);
@@ -381,6 +382,11 @@ void MakeK0sPairHistograms(
   chain.SetBranchAddress("npoints1", &npoints1);
   chain.SetBranchAddress("npoints2", &npoints2);
 
+  if (ScaleQualityBy10)
+  {
+    quality1 *= 10;
+    quality2 *= 10;
+  }
 
   // Ten cumulative cut levels.
   //

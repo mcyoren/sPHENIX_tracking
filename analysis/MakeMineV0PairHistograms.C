@@ -62,7 +62,7 @@ namespace
     double maxAbsPairDCA;
     double minDIRA;
     double maxQuality;
-    int minNclusters;
+    int minnclusters;
   };
 
   struct HistSet
@@ -141,40 +141,40 @@ namespace
       "h_mass_Kshort",
       "K^{0}_{S} invariant mass" + tag +
         ";m_{#pi^{+}#pi^{-}} [GeV/c^{2}];pairs",
-      200, 0.0, 2.0);
+      500, 0.0, 1.0);
 
     h.h_lambda_mass = new TH1F(
       "h_mass_Lambda",
       "#Lambda invariant mass, p_{T}(p)>p_{T}(#pi)" + tag +
         ";m_{p#pi^{-}} [GeV/c^{2}];pairs",
-      200, 1.0, 1.3);
+      300, 1.0, 1.3);
 
     h.h_antilambda_mass = new TH1F(
       "h_mass_AntiLambda",
       "#bar{#Lambda} invariant mass, p_{T}(#bar{p})>p_{T}(#pi)" + tag +
         ";m_{#bar{p}#pi^{+}} [GeV/c^{2}];pairs",
-      200, 1.0, 1.3);
+      300, 1.0, 1.3);
 
     h.h_k0s_mass_vs_v0pt = new TH2F(
       "h_mass_Kshort_vs_v0_pt",
       "K^{0}_{S} mass vs V0 p_{T}" + tag +
         ";p_{T}^{V0} [GeV/c];m_{#pi^{+}#pi^{-}} [GeV/c^{2}]",
-      100, 0., 5.,
-      200, 0.0, 2.0);
+      50, 0., 5.,
+      500, 0.0, 1.0);
 
     h.h_lambda_mass_vs_v0pt = new TH2F(
       "h_mass_Lambda_vs_v0_pt",
       "#Lambda mass vs V0 p_{T}, p_{T}(p)>p_{T}(#pi)" + tag +
         ";p_{T}^{V0} [GeV/c];m_{p#pi^{-}} [GeV/c^{2}]",
-      100, 0., 5.,
-      200, 1.0, 1.3);
+      50, 0., 5.,
+      300, 1.0, 1.3);
 
     h.h_antilambda_mass_vs_v0pt = new TH2F(
       "h_mass_AntiLambda_vs_v0_pt",
       "#bar{#Lambda} mass vs V0 p_{T}, p_{T}(#bar{p})>p_{T}(#pi)" + tag +
         ";p_{T}^{V0} [GeV/c];m_{#bar{p}#pi^{+}} [GeV/c^{2}]",
-      100, 0., 5.,
-      200, 1.0, 1.3);
+      50, 0., 5.,
+      300, 1.0, 1.3);
 
     h.h_armenteros_podolanski = new TH2F(
       "h_armenteros_podolanski",
@@ -239,7 +239,7 @@ namespace
       absPairDCA < selection.maxAbsPairDCA &&
       dira > selection.minDIRA &&
       qualityMax < selection.maxQuality &&
-      nclustersMin > selection.minNclusters;
+      nclustersMin > selection.minnclusters;
   }
 }
 
@@ -346,12 +346,7 @@ void MakeMineV0PairHistograms(
   Short_t charge2 = 0;
   UShort_t nclusters1 = 0;
   UShort_t nclusters2 = 0;
-  UShort_t npoints1 = 0;
-  UShort_t npoints2 = 0;
 
-  const bool hasNpoints =
-    branchExists(chain, "npoints1") &&
-    branchExists(chain, "npoints2");
 
   chain.SetBranchAddress("mass_Kshort", &mass_Kshort);
   chain.SetBranchAddress("mass_Lambda", &mass_Lambda);
@@ -386,18 +381,6 @@ void MakeMineV0PairHistograms(
   chain.SetBranchAddress("nclusters1", &nclusters1);
   chain.SetBranchAddress("nclusters2", &nclusters2);
 
-  if (hasNpoints)
-  {
-    chain.SetBranchAddress("npoints1", &npoints1);
-    chain.SetBranchAddress("npoints2", &npoints2);
-  }
-  else
-  {
-    std::cout
-      << "WARNING: npoints1/npoints2 branches are absent; "
-      << "exactCut1 and exactCut2 will use nclusters1/nclusters2 instead."
-      << std::endl;
-  }
 
   // Ten cumulative cut levels.
   //
@@ -535,13 +518,13 @@ void MakeMineV0PairHistograms(
       "exactCut1",
       "-15<pca_z<15, |Delta pca_z|<0.5, daughter pT>0.3, "
       "radius>6, |alpha|<0.8, |pairDCA|<1, DIRA>0.8, "
-      "npoints>30, quality<20"
+      "nclusters>30, quality<20"
     },
     {
       "exactCut2",
       "-15<pca_z<0, |Delta pca_z|<0.5, daughter pT>0.3, "
       "radius>6, |alpha|<0.8, |pairDCA|<4, pz1/2<0, "
-      "DIRA>0.8, npoints>30"
+      "DIRA>0.8, nclusters>30"
     },
     {
       "exactCut3",
@@ -686,13 +669,9 @@ void MakeMineV0PairHistograms(
       }
     }
 
-    const int effectiveNpoints1 =
-      hasNpoints ? static_cast<int>(npoints1)
-                 : static_cast<int>(nclusters1);
+    const int effectivenclusters1 = nclusters1;
 
-    const int effectiveNpoints2 =
-      hasNpoints ? static_cast<int>(npoints2)
-                 : static_cast<int>(nclusters2);
+    const int effectivenclusters2 = nclusters2;
 
     const bool exactCut1 =
       pca_z > -15.f && pca_z < 15.f &&
@@ -702,7 +681,7 @@ void MakeMineV0PairHistograms(
       absAlpha < 0.8 &&
       absPairDCA < 1.0 &&
       dira > 0.8 &&
-      effectiveNpoints1 > 30 && effectiveNpoints2 > 30 &&
+      effectivenclusters1 > 30 && effectivenclusters2 > 30 &&
       quality1 < 20.0 && quality2 < 20.0;
 
     const bool exactCut2 =
@@ -714,7 +693,7 @@ void MakeMineV0PairHistograms(
       absPairDCA < 4.0 &&
       pz1 < 0.f && pz2 < 0.f &&
       dira > 0.8 &&
-      effectiveNpoints1 > 30 && effectiveNpoints2 > 30;
+      effectivenclusters1 > 30 && effectivenclusters2 > 30;
 
     const bool exactCut3 =
       pca_z > -15.f && pca_z < 0.f &&

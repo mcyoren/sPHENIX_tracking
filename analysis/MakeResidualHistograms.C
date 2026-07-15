@@ -19,6 +19,7 @@
 #include <TH2D.h>
 #include <TH3D.h>
 #include <TMath.h>
+#include <TProfile2D.h>
 #include <TString.h>
 #include <TSystem.h>
 
@@ -65,6 +66,24 @@ namespace
 
     TH2D* h_residual_z_layer = nullptr;
     TH3D* h_residual_z_layer_pt = nullptr;
+
+    // Mean residual maps versus detector layer and cluster phi.
+    // Two pT selections are stored separately: pT > 1 and pT > 2 GeV/c.
+    // Option "s" makes profile-bin errors equal to the residual spread
+    // (standard deviation), rather than the error on the mean.
+    TProfile2D* h_mean_residual_rphi_layer_phi_pt1 = nullptr;
+    TProfile2D* h_mean_residual_rphi_layer_phi_pt2 = nullptr;
+    TProfile2D* h_mean_residual_z_layer_phi_pt1 = nullptr;
+    TProfile2D* h_mean_residual_z_layer_phi_pt2 = nullptr;
+
+    // Additional loose-selection maps. These do not use the baseline
+    // ntpc_clusters >= 30 requirement applied to the existing plots.
+    TProfile2D* h_mean_residual_rphi_layer_phi_loose = nullptr;
+    TProfile2D* h_mean_residual_z_layer_phi_loose = nullptr;
+
+    // Mean z-residual maps versus cluster z and detector layer.
+    TProfile2D* h_mean_residual_z_cluster_z_layer_pt1 = nullptr;
+    TProfile2D* h_mean_residual_z_cluster_z_layer_pt2 = nullptr;
   };
 
   HistSet bookHistograms(TDirectory* dir, const std::string& category)
@@ -125,13 +144,13 @@ namespace
 
     h.h_dedx_signedP =
       new TH2D("h_dedx_vs_signedP",
-               "dE/dx vs charge#times(1-2side)#timesp" + suffix +
-               ";q(1-2side)p [GeV/c];dE/dx",
+               "dE/dx vs charge#timesp" + suffix +
+               ";qp [GeV/c];dE/dx",
                400, -2., 2., 1000, 0., 6000.);
     h.h_dedx_signedP_pt =
       new TH3D("h_dedx_vs_signedP_vs_pt",
-               "dE/dx vs signed p vs p_{T}" + suffix +
-               ";q(1-2side)p [GeV/c];dE/dx;p_{T} [GeV/c]",
+               "dE/dx vs charge#timesp vs p_{T}" + suffix +
+               ";qp [GeV/c];dE/dx;p_{T} [GeV/c]",
                400, -2., 2., 1000, 0., 6000., 100, 0., 10.);
 
     h.h_residual_rphi_cluster_r =
@@ -177,6 +196,70 @@ namespace
                "z residual vs layer vs p_{T}" + suffix +
                ";TPC layer;z residual [cm];p_{T} [GeV/c]",
                48, 6.5, 54.5, 200, -2., 2., 100, 0., 10.);
+
+    h.h_mean_residual_rphi_layer_phi_pt1 =
+      new TProfile2D("h_mean_residual_rphi_vs_layer_phi_pt1",
+                     "Mean r#phi residual vs layer and cluster #phi, p_{T}>1 GeV/c" + suffix +
+                     ";TPC layer;cluster #phi [rad];<#Deltar#phi> [cm]",
+                     48, 6.5, 54.5,
+                     128, -TMath::Pi(), TMath::Pi(),
+                     "s");
+
+    h.h_mean_residual_rphi_layer_phi_pt2 =
+      new TProfile2D("h_mean_residual_rphi_vs_layer_phi_pt2",
+                     "Mean r#phi residual vs layer and cluster #phi, p_{T}>2 GeV/c" + suffix +
+                     ";TPC layer;cluster #phi [rad];<#Deltar#phi> [cm]",
+                     48, 6.5, 54.5,
+                     128, -TMath::Pi(), TMath::Pi(),
+                     "s");
+
+    h.h_mean_residual_z_layer_phi_pt1 =
+      new TProfile2D("h_mean_residual_z_vs_layer_phi_pt1",
+                     "Mean z residual vs layer and cluster #phi, p_{T}>1 GeV/c" + suffix +
+                     ";TPC layer;cluster #phi [rad];<#Deltaz> [cm]",
+                     48, 6.5, 54.5,
+                     128, -TMath::Pi(), TMath::Pi(),
+                     "s");
+
+    h.h_mean_residual_z_layer_phi_pt2 =
+      new TProfile2D("h_mean_residual_z_vs_layer_phi_pt2",
+                     "Mean z residual vs layer and cluster #phi, p_{T}>2 GeV/c" + suffix +
+                     ";TPC layer;cluster #phi [rad];<#Deltaz> [cm]",
+                     48, 6.5, 54.5,
+                     128, -TMath::Pi(), TMath::Pi(),
+                     "s");
+
+    h.h_mean_residual_rphi_layer_phi_loose =
+      new TProfile2D("h_mean_residual_rphi_vs_layer_phi_loose",
+                     "Mean r#phi residual vs layer and cluster #phi, loose selection" + suffix +
+                     ";TPC layer;cluster #phi [rad];<#Deltar#phi> [cm]",
+                     48, 6.5, 54.5,
+                     128, -TMath::Pi(), TMath::Pi(),
+                     "s");
+
+    h.h_mean_residual_z_layer_phi_loose =
+      new TProfile2D("h_mean_residual_z_vs_layer_phi_loose",
+                     "Mean z residual vs layer and cluster #phi, loose selection" + suffix +
+                     ";TPC layer;cluster #phi [rad];<#Deltaz> [cm]",
+                     48, 6.5, 54.5,
+                     128, -TMath::Pi(), TMath::Pi(),
+                     "s");
+
+    h.h_mean_residual_z_cluster_z_layer_pt1 =
+      new TProfile2D("h_mean_residual_z_vs_cluster_z_layer_pt1",
+                     "Mean z residual vs cluster z and layer, p_{T}>1 GeV/c" + suffix +
+                     ";cluster z [cm];TPC layer;<#Deltaz> [cm]",
+                     240, -120., 120.,
+                     48, 6.5, 54.5,
+                     "s");
+
+    h.h_mean_residual_z_cluster_z_layer_pt2 =
+      new TProfile2D("h_mean_residual_z_vs_cluster_z_layer_pt2",
+                     "Mean z residual vs cluster z and layer, p_{T}>2 GeV/c" + suffix +
+                     ";cluster z [cm];TPC layer;<#Deltaz> [cm]",
+                     240, -120., 120.,
+                     48, 6.5, 54.5,
+                     "s");
 
     return h;
   }
@@ -243,6 +326,8 @@ void MakeResidualHistograms(
   // Vector branches.
   std::vector<unsigned int>* layer = nullptr;
   std::vector<double>* cluster_r = nullptr;
+  std::vector<double>* cluster_phi = nullptr;
+  std::vector<double>* cluster_z = nullptr;
   std::vector<double>* residual_rphi = nullptr;
   std::vector<double>* residual_z = nullptr;
 
@@ -264,6 +349,30 @@ void MakeResidualHistograms(
   chain.SetBranchAddress("cluster_r", &cluster_r);
   chain.SetBranchAddress("residual_rphi", &residual_rphi);
   chain.SetBranchAddress("residual_z", &residual_z);
+
+  const bool hasClusterPhi = (chain.GetBranch("cluster_phi") != nullptr);
+  if (hasClusterPhi)
+  {
+    chain.SetBranchAddress("cluster_phi", &cluster_phi);
+  }
+  else
+  {
+    std::cerr << "WARNING: branch 'cluster_phi' is not available. "
+              << "Layer-vs-cluster-phi residual profiles will remain empty."
+              << std::endl;
+  }
+
+  const bool hasClusterZ = (chain.GetBranch("cluster_z") != nullptr);
+  if (hasClusterZ)
+  {
+    chain.SetBranchAddress("cluster_z", &cluster_z);
+  }
+  else
+  {
+    std::cerr << "WARNING: branch 'cluster_z' is not available. "
+              << "Cluster-z-vs-layer residual profiles will remain empty."
+              << std::endl;
+  }
 
   gSystem->mkdir(outputDir, kTRUE);
   const TString outputPath =
@@ -309,45 +418,65 @@ void MakeResidualHistograms(
       continue;
     }
 
-    if (abs(pca_z) > 10||ntpc_clusters<30)
-    {
-      continue;
-    }
+    // Keep the original baseline requirement for all pre-existing plots.
+    // The two new loose residual maps below are allowed to bypass it.
+    const bool passBaseline =
+      std::abs(pca_z) <= 10. && ntpc_clusters >= 30;
 
     const auto activeCategories = categoriesForTrack(side, charge);
     const double phi_px_py = std::atan2(px, py);
     const double qOverPt = (pt != 0.) ? charge / pt : 0.;
     const double p = std::sqrt(pt * pt + pz * pz);
-    const double signedP = charge * (1. - 0. * side) * p;
+    const double signedP = charge * p;
 
     // Original selection:
     // ntpc_clusters>30 && pt>0.5 && abs(zDCA)<2
     const bool passSidePca =
-      ntpc_clusters > 30 && pt > 0.5 && std::abs(zDCA) < 2e6;
+      passBaseline && ntpc_clusters > 30 && pt > 0.5 && std::abs(zDCA) < 2e6;
 
     // Original selection:
     // ntpc_clusters>30 && pca_z in (-15,15) && pt>0.3
     const bool passDcaPhiEta =
+      passBaseline &&
       ntpc_clusters > 30 &&
       std::abs(pca_z) < 15. &&
       pt > 0.3;
 
     // Original q/pT plot had no explicit pT threshold.
     const bool passRDcaQOverPt =
+      passBaseline &&
       ntpc_clusters > 30 &&
       std::abs(pca_z) < 15. &&
       pt > 0.;
 
     // Original dE/dx selection.
     const bool passDedx =
+      passBaseline &&
       ntpc_clusters > 25 &&
       std::abs(rDCA_zero) < 2. &&
       std::abs(zDCA) < 2;
 
-    // Original cluster residual selection.
-    const bool passClusterResidual =
+    // All cluster-residual plots require a good transverse DCA.
+    // The rDCA_zero distributions themselves remain uncut in rDCA_zero.
+    const bool passResidualTrack =
+      passBaseline &&
+      std::isfinite(rDCA_zero) && std::abs(rDCA_zero) < 2.;
+
+    // New loose residual-map selection only. It intentionally bypasses
+    // the baseline ntpc_clusters >= 30 selection used by all existing plots.
+    const bool passClusterMapLoose =
+      ntpc_clusters > 20 &&
+      pt > 0.2 &&
       std::abs(pca_z) < 10. &&
-      pt > 2.;
+      std::isfinite(rDCA_zero) &&
+      std::abs(rDCA_zero) < 2.;
+
+    // Existing cluster residual histograms retain their pT > 2 GeV/c cut.
+    const bool passClusterResidual = passResidualTrack && pt > 2.;
+
+    // New residual maps are made with two thresholds.
+    const bool passClusterMapPt1 = passResidualTrack && pt > 1.;
+    const bool passClusterMapPt2 = passResidualTrack && pt > 2.;
 
     for (const auto& category : activeCategories)
     {
@@ -384,15 +513,24 @@ void MakeResidualHistograms(
       }
     }
 
-    if (!passClusterResidual || !cluster_r || !residual_rphi ||
-        !residual_z || !layer)
+    if ((!passClusterResidual && !passClusterMapPt1 && !passClusterMapLoose) ||
+        !cluster_r || !residual_rphi || !residual_z || !layer)
     {
       continue;
     }
 
-    const std::size_t nClusters = std::min(
+    std::size_t nClusters = std::min(
       {cluster_r->size(), residual_rphi->size(),
        residual_z->size(), layer->size()});
+
+    if (hasClusterPhi && cluster_phi)
+    {
+      nClusters = std::min(nClusters, cluster_phi->size());
+    }
+    if (hasClusterZ && cluster_z)
+    {
+      nClusters = std::min(nClusters, cluster_z->size());
+    }
 
     for (std::size_t i = 0; i < nClusters; ++i)
     {
@@ -400,28 +538,93 @@ void MakeResidualHistograms(
       const double drphi = residual_rphi->at(i);
       const double dz = residual_z->at(i);
       const double tpcLayer = static_cast<double>(layer->at(i));
+      const double clusterPhi =
+        (hasClusterPhi && cluster_phi) ? cluster_phi->at(i) : 0.;
+      const double clusterZ =
+        (hasClusterZ && cluster_z) ? cluster_z->at(i) : 0.;
 
       if (!std::isfinite(radius) || !std::isfinite(drphi) ||
-          !std::isfinite(dz))
+          !std::isfinite(dz) ||
+          (hasClusterPhi && !std::isfinite(clusterPhi)) ||
+          (hasClusterZ && !std::isfinite(clusterZ)))
       {
         continue;
       }
+
+      // Reject pathological residual outliers at the filling stage.
+      // Apply the rejection independently so a bad rphi residual does not
+      // discard an otherwise valid z residual, and vice versa.
+      const bool goodRphiResidual = std::abs(drphi) < 2.;
+      const bool goodZResidual = std::abs(dz) < 2.;
 
       for (const auto& category : activeCategories)
       {
         HistSet& h = histograms.at(category);
 
-        h.h_residual_rphi_cluster_r->Fill(radius, drphi);
-        h.h_residual_rphi_cluster_r_pt->Fill(radius, drphi, pt);
+        if (passClusterResidual)
+        {
+          if (goodRphiResidual)
+          {
+            h.h_residual_rphi_cluster_r->Fill(radius, drphi);
+            h.h_residual_rphi_cluster_r_pt->Fill(radius, drphi, pt);
+            h.h_residual_rphi_layer->Fill(tpcLayer, drphi);
+            h.h_residual_rphi_layer_pt->Fill(tpcLayer, drphi, pt);
+          }
 
-        h.h_residual_z_cluster_r->Fill(radius, dz);
-        h.h_residual_z_cluster_r_pt->Fill(radius, dz, pt);
+          if (goodZResidual)
+          {
+            h.h_residual_z_cluster_r->Fill(radius, dz);
+            h.h_residual_z_cluster_r_pt->Fill(radius, dz, pt);
+            h.h_residual_z_layer->Fill(tpcLayer, dz);
+            h.h_residual_z_layer_pt->Fill(tpcLayer, dz, pt);
+          }
+        }
 
-        h.h_residual_rphi_layer->Fill(tpcLayer, drphi);
-        h.h_residual_rphi_layer_pt->Fill(tpcLayer, drphi, pt);
+        if (hasClusterPhi && cluster_phi && passClusterMapLoose)
+        {
+          if (goodRphiResidual)
+          {
+            h.h_mean_residual_rphi_layer_phi_loose->Fill(tpcLayer, clusterPhi, drphi);
+          }
+          if (goodZResidual)
+          {
+            h.h_mean_residual_z_layer_phi_loose->Fill(tpcLayer, clusterPhi, dz);
+          }
+        }
 
-        h.h_residual_z_layer->Fill(tpcLayer, dz);
-        h.h_residual_z_layer_pt->Fill(tpcLayer, dz, pt);
+        if (hasClusterPhi && cluster_phi && passClusterMapPt1)
+        {
+          if (goodRphiResidual)
+          {
+            h.h_mean_residual_rphi_layer_phi_pt1->Fill(tpcLayer, clusterPhi, drphi);
+          }
+          if (goodZResidual)
+          {
+            h.h_mean_residual_z_layer_phi_pt1->Fill(tpcLayer, clusterPhi, dz);
+          }
+        }
+
+        if (hasClusterPhi && cluster_phi && passClusterMapPt2)
+        {
+          if (goodRphiResidual)
+          {
+            h.h_mean_residual_rphi_layer_phi_pt2->Fill(tpcLayer, clusterPhi, drphi);
+          }
+          if (goodZResidual)
+          {
+            h.h_mean_residual_z_layer_phi_pt2->Fill(tpcLayer, clusterPhi, dz);
+          }
+        }
+
+        if (hasClusterZ && cluster_z && goodZResidual && passClusterMapPt1)
+        {
+          h.h_mean_residual_z_cluster_z_layer_pt1->Fill(clusterZ, tpcLayer, dz);
+        }
+
+        if (hasClusterZ && cluster_z && goodZResidual && passClusterMapPt2)
+        {
+          h.h_mean_residual_z_cluster_z_layer_pt2->Fill(clusterZ, tpcLayer, dz);
+        }
       }
     }
   }
