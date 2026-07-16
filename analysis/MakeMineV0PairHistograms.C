@@ -30,6 +30,7 @@
 #include <TH3F.h>
 #include <TString.h>
 #include <TSystem.h>
+#include <TMath.h>
 
 #include <algorithm>
 #include <cmath>
@@ -82,6 +83,14 @@ namespace
     TH3F* h3_lambda = nullptr;
     TH3F* h3_antilambda = nullptr;
   };
+  constexpr double kTwoPi = 2.0 * TMath::Pi();
+
+  double wrapPhi(double phi)
+  {
+    while (phi >= TMath::Pi()) phi -= kTwoPi;
+    while (phi < -TMath::Pi()) phi += kTwoPi;
+    return phi;
+  }
 
   bool branchExists(TChain& chain, const char* name)
   {
@@ -381,7 +390,6 @@ void MakeMineV0PairHistograms(
   chain.SetBranchAddress("nclusters1", &nclusters1);
   chain.SetBranchAddress("nclusters2", &nclusters2);
 
-
   // Ten cumulative cut levels.
   //
   // Distances are in cm:
@@ -592,6 +600,14 @@ void MakeMineV0PairHistograms(
         << "Processing " << entry
         << " / " << entriesToProcess
         << std::endl;
+    }
+
+    const double phiPos = std::atan2(charge1==1 ? py1 : py2, charge1==1 ? px1 : px2);
+    const double phiNeg = std::atan2(charge1==1 ? py2 : py1, charge1==1 ? px2 : px1);
+    const double deltaPhi = wrapPhi(phiPos - phiNeg);
+    if (deltaPhi <0.01)
+    {
+      continue;
     }
 
     const auto categories =
