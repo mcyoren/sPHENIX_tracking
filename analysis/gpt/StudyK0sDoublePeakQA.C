@@ -163,8 +163,8 @@ namespace
     h.pzNeg         = bookMassVs(dir, "h_mass_vs_pz_negative", "p_{z}^{-} [GeV/c]", 120, -5., 5.);
     h.npointsMin    = bookMassVs(dir, "h_mass_vs_npoints_min", "min(N_{points}^{+},N_{points}^{-})", 40, 30., 70.);
     h.npointsMax    = bookMassVs(dir, "h_mass_vs_npoints_max", "max(N_{points}^{+},N_{points}^{-})", 40, 30., 70.);
-    h.qualityMin    = bookMassVs(dir, "h_mass_vs_quality_min", "min(quality^{+},quality^{-})", 100, 0., 20.);
-    h.qualityMax    = bookMassVs(dir, "h_mass_vs_quality_max", "max(quality^{+},quality^{-})", 100, 0., 20.);
+    h.qualityMin    = bookMassVs(dir, "h_mass_vs_quality_min", "min(quality^{+},quality^{-})", 100, 0., 2.);
+    h.qualityMax    = bookMassVs(dir, "h_mass_vs_quality_max", "max(quality^{+},quality^{-})", 100, 0., 2.);
     h.massRecalc    = bookMassVs(dir, "h_stored_mass_vs_recalculated_mass", "recalculated m_{#pi#pi} [GeV/c^{2}]", 300, 0.42, 0.57);
     h.deltaPhiVsMassVsPt = new TH3F("h_delta_phi_vs_mass_vs_pt", "K^{0}_{S} #Delta#phi_{+-} vs m_{#pi#pi} vs p_{T}^{V0}; m_{#pi#pi} [GeV/c^{2}]; p_{T}^{V0} [GeV/c]; #Delta#phi_{+-} [rad]",
       300, 0.42, 0.57, 50, 0., 5., 144, -TMath::Pi(), TMath::Pi());
@@ -418,15 +418,22 @@ void StudyK0sDoublePeakQA(const char* inputDir = ".",
     const bool exactCut1 =
       pca_z > -15.f && pca_z < 15.f &&
       absDeltaPcaZ < 0.5 &&
-      pt1 > 0.3 && pt2 > 0.3 &&
-      decayRadius > 6.0 &&
-      absAlpha < 0.8 &&
-      absPairDCA < 1.0 &&
-      dira > 0.8 &&
-      npoints1 > 30 && npoints2 > 30 &&
-      quality1 < 20.0 && quality2 < 20.0;
+      pt1 > 0.2 && pt2 > 0.2 &&
+      decayRadius > 2.0 &&
+      absAlpha < 0.99 &&
+      absPairDCA < 1.5 &&
+      dira > 0.88 &&
+      npoints1 > 20 && npoints2 > 20 &&
+      quality1 < 1.5 && quality2 < 1.5;
 
     if (!exactCut1) continue;
+    const double phiPos0 = std::atan2(charge1==1 ? py1 : py2, charge1==1 ? px1 : px2);
+    const double phiNeg0 = std::atan2(charge1==1 ? py2 : py1, charge1==1 ? px2 : px1);
+    const double deltaPhi0 = wrapPhi(phiPos0 - phiNeg0);
+    if (deltaPhi0 <0.8 - 0.4 * ( v0_pt  < 2.0 ? v0_pt : 2.0 ) )
+    {
+      continue;
+    }
 
     const bool unlike = charge1 * charge2 < 0.f;
     const bool like = charge1 * charge2 > 0.f;

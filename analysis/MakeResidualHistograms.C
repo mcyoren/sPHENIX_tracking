@@ -78,8 +78,8 @@ namespace
 
     // Additional loose-selection maps. These do not use the baseline
     // ntpc_clusters >= 30 requirement applied to the existing plots.
-    TProfile2D* h_mean_residual_rphi_layer_phi_loose = nullptr;
-    TProfile2D* h_mean_residual_z_layer_phi_loose = nullptr;
+    TProfile2D* h_mean_residual_rphi_layer_phi_pt0 = nullptr;
+    TProfile2D* h_mean_residual_z_layer_phi_pt0 = nullptr;
 
     // Mean z-residual maps versus cluster z and detector layer.
     TProfile2D* h_mean_residual_z_cluster_z_layer_pt1 = nullptr;
@@ -229,17 +229,17 @@ namespace
                      128, -TMath::Pi(), TMath::Pi(),
                      "s");
 
-    h.h_mean_residual_rphi_layer_phi_loose =
-      new TProfile2D("h_mean_residual_rphi_vs_layer_phi_loose",
-                     "Mean r#phi residual vs layer and cluster #phi, loose selection" + suffix +
+    h.h_mean_residual_rphi_layer_phi_pt0 =
+      new TProfile2D("h_mean_residual_rphi_vs_layer_phi_pt0",
+                     "Mean r#phi residual vs layer and cluster #phi, p_{T}>0 GeV/c" + suffix +
                      ";TPC layer;cluster #phi [rad];<#Deltar#phi> [cm]",
                      48, 6.5, 54.5,
                      128, -TMath::Pi(), TMath::Pi(),
                      "s");
 
-    h.h_mean_residual_z_layer_phi_loose =
-      new TProfile2D("h_mean_residual_z_vs_layer_phi_loose",
-                     "Mean z residual vs layer and cluster #phi, loose selection" + suffix +
+    h.h_mean_residual_z_layer_phi_pt0 =
+      new TProfile2D("h_mean_residual_z_vs_layer_phi_pt0",
+                     "Mean z residual vs layer and cluster #phi, p_{T}>0 GeV/c" + suffix +
                      ";TPC layer;cluster #phi [rad];<#Deltaz> [cm]",
                      48, 6.5, 54.5,
                      128, -TMath::Pi(), TMath::Pi(),
@@ -322,6 +322,7 @@ void MakeResidualHistograms(
   Double_t pca_z = 0.;
   Double_t rDCA_zero = 0.;
   Double_t zDCA = 0.;
+  Float_t quality = 0.;
 
   // Vector branches.
   std::vector<unsigned int>* layer = nullptr;
@@ -344,7 +345,7 @@ void MakeResidualHistograms(
   chain.SetBranchAddress("pca_z", &pca_z);
   chain.SetBranchAddress("rDCA_zero", &rDCA_zero);
   chain.SetBranchAddress("zDCA", &zDCA);
-
+  chain.SetBranchAddress("quality", &quality);
   chain.SetBranchAddress("layer", &layer);
   chain.SetBranchAddress("cluster_r", &cluster_r);
   chain.SetBranchAddress("residual_rphi", &residual_rphi);
@@ -420,8 +421,12 @@ void MakeResidualHistograms(
 
     // Keep the original baseline requirement for all pre-existing plots.
     // The two new loose residual maps below are allowed to bypass it.
-    const bool passBaseline =
-      std::abs(pca_z) <= 10. && ntpc_clusters >= 30;
+
+    if( std::abs(pca_z) <= 10. || quality > 1.0 ) {
+      continue;
+    }
+
+    const bool passBaseline = ntpc_clusters >= 30;
 
     const auto activeCategories = categoriesForTrack(side, charge);
     const double phi_px_py = std::atan2(px, py);
@@ -584,11 +589,11 @@ void MakeResidualHistograms(
         {
           if (goodRphiResidual)
           {
-            h.h_mean_residual_rphi_layer_phi_loose->Fill(tpcLayer, clusterPhi, drphi);
+            h.h_mean_residual_rphi_layer_phi_pt0->Fill(tpcLayer, clusterPhi, drphi);
           }
           if (goodZResidual)
           {
-            h.h_mean_residual_z_layer_phi_loose->Fill(tpcLayer, clusterPhi, dz);
+            h.h_mean_residual_z_layer_phi_pt0->Fill(tpcLayer, clusterPhi, dz);
           }
         }
 
