@@ -122,7 +122,7 @@ void TestFieldMap_spacecharge(const double keff_side0=1.0, const double keff_sid
   phg->MoveTpc(center.X(),center.Y(),center.Z());
   phg->RotateTpc(0,0.001485,0);//per JohnH
   phg->RotateTpc(0.000298,0,0);//per JohnH
-  phg->SetCMVoltageDefault(432.8);//per Grafana
+  phg->SetCMVoltageDefault(370.0);//per Grafana
   se->registerSubsystem(phg);
 
   se->run(4);
@@ -223,7 +223,7 @@ canny2->cd();
 canny2->Modified();
 canny2->Update();
 
-canny2->SaveAs(Form("PL_newer_V_keff_%g_%g.pdf", k_eff_side0, k_eff_side1));
+canny2->SaveAs(Form("PL_newer_V370_keff_%g_%g.pdf", k_eff_side0, k_eff_side1));
 
 // Make sure the output file is the active ROOT directory.
 Polyfile->cd();
