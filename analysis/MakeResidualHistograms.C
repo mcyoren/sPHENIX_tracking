@@ -51,6 +51,18 @@ namespace
     TH2D* h_rDCA_qOverPt = nullptr;
     TH3D* h_rDCA_qOverPt_pt = nullptr;
 
+    // Distortion phase-space QA with |rDCA_zero| < 3 cm, |pca_z| < 10 cm,
+    // and ntpc_clusters > 30. Existing side/charge categories allow direct
+    // positive-to-negative comparisons for each TPC side.
+    TH2D* h_pt_phi_rdca3 = nullptr;
+    TH2D* h_pt_eta_rdca3 = nullptr;
+    TH2D* h_rDCAzero_phi_rdca3 = nullptr;
+    TH2D* h_rDCAzero_eta_rdca3 = nullptr;
+    TH3D* h_rDCAzero_qOverPt_phi_rdca3 = nullptr;
+    TH3D* h_rDCAzero_qOverPt_eta_rdca3 = nullptr;
+    TProfile2D* p_mean_rDCAzero_phi_eta_rdca3 = nullptr;
+    TProfile2D* p_mean_qOverPt_phi_eta_rdca3 = nullptr;
+
     TH2D* h_dedx_signedP = nullptr;
     TH3D* h_dedx_signedP_pt = nullptr;
 
@@ -66,6 +78,8 @@ namespace
 
     TH2D* h_residual_z_layer = nullptr;
     TH3D* h_residual_z_layer_pt = nullptr;
+
+    TH3D* h_pt_phi_eta_rdca3 = nullptr;
 
     // Mean residual maps versus detector layer and cluster phi.
     // Two pT selections are stored separately: pT > 1 and pT > 2 GeV/c.
@@ -141,6 +155,69 @@ namespace
                "rDCA vs q/p_{T} vs p_{T}" + suffix +
                ";q/p_{T} [(GeV/c)^{-1}];rDCA [cm];p_{T} [GeV/c]",
                100, -5., 5., 200, -10., 10., 100, 0., 10.);
+
+    h.h_pt_phi_rdca3 =
+      new TH2D("h_pt_vs_atan2_px_py_rdca3",
+               "p_{T} vs atan2(px,py), |rDCA_{zero}|<3 cm" + suffix +
+               ";atan2(px,py);p_{T} [GeV/c]",
+               128, -TMath::Pi(), TMath::Pi(), 100, 0., 10.);
+
+    h.h_pt_eta_rdca3 =
+      new TH2D("h_pt_vs_eta_rdca3",
+               "p_{T} vs #eta, |rDCA_{zero}|<3 cm" + suffix +
+               ";#eta;p_{T} [GeV/c]",
+               100, -2., 2., 100, 0., 10.);
+
+    h.h_rDCAzero_phi_rdca3 =
+      new TH2D("h_rDCAzero_vs_atan2_px_py_rdca3",
+               "rDCA_{zero} vs atan2(px,py), |rDCA_{zero}|<3 cm" + suffix +
+               ";atan2(px,py);rDCA_{zero} [cm]",
+               128, -TMath::Pi(), TMath::Pi(), 120, -3., 3.);
+
+    h.h_rDCAzero_eta_rdca3 =
+      new TH2D("h_rDCAzero_vs_eta_rdca3",
+               "rDCA_{zero} vs #eta, |rDCA_{zero}|<3 cm" + suffix +
+               ";#eta;rDCA_{zero} [cm]",
+               100, -2., 2., 120, -3., 3.);
+
+    h.h_rDCAzero_qOverPt_phi_rdca3 =
+      new TH3D("h_rDCAzero_vs_qOverPt_vs_atan2_px_py_rdca3",
+               "rDCA_{zero} vs q/p_{T} vs atan2(px,py), |rDCA_{zero}|<3 cm" + suffix +
+               ";atan2(px,py);q/p_{T} [(GeV/c)^{-1}];rDCA_{zero} [cm]",
+               128, -TMath::Pi(), TMath::Pi(), 100, -5., 5., 120, -3., 3.);
+
+    h.h_rDCAzero_qOverPt_eta_rdca3 =
+      new TH3D("h_rDCAzero_vs_qOverPt_vs_eta_rdca3",
+               "rDCA_{zero} vs q/p_{T} vs #eta, |rDCA_{zero}|<3 cm" + suffix +
+               ";#eta;q/p_{T} [(GeV/c)^{-1}];rDCA_{zero} [cm]",
+               100, -2., 2., 100, -5., 5., 120, -3., 3.);
+
+    h.p_mean_rDCAzero_phi_eta_rdca3 =
+      new TProfile2D("p_mean_rDCAzero_vs_atan2_px_py_eta_rdca3",
+                     "Mean rDCA_{zero} vs atan2(px,py) and #eta, |rDCA_{zero}|<3 cm" + suffix +
+                     ";atan2(px,py);#eta;<rDCA_{zero}> [cm]",
+                     128, -TMath::Pi(), TMath::Pi(),
+                     100, -2., 2.,
+                     "s");
+
+    h.p_mean_qOverPt_phi_eta_rdca3 =
+      new TProfile2D("p_mean_qOverPt_vs_atan2_px_py_eta_rdca3",
+                     "Mean q/p_{T} vs atan2(px,py) and #eta, |rDCA_{zero}|<3 cm" + suffix +
+                     ";atan2(px,py);#eta;<q/p_{T}> [(GeV/c)^{-1}]",
+                     128, -TMath::Pi(), TMath::Pi(),
+                     100, -2., 2.,
+                     "s");
+
+    h.h_pt_phi_eta_rdca3 =
+      new TH3D(
+        "h_pt_vs_atan2_px_py_vs_eta_rdca3",
+        "p_{T} vs atan2(px,py) and #eta, |rDCA_{zero}|<3"
+        + suffix
+        + ";atan2(px,py) [rad];#eta;p_{T} [GeV/c]",
+        120, -TMath::Pi(), TMath::Pi(),
+        50, -2., 2.,
+        50, 0., 5.
+      );
 
     h.h_dedx_signedP =
       new TH2D("h_dedx_vs_signedP",
@@ -322,7 +399,7 @@ void MakeResidualHistograms(
   Double_t pca_z = 0.;
   Double_t rDCA_zero = 0.;
   Double_t zDCA = 0.;
-  Float_t quality = 0.;
+  Double_t quality = 0.;
 
   // Vector branches.
   std::vector<unsigned int>* layer = nullptr;
@@ -422,7 +499,8 @@ void MakeResidualHistograms(
     // Keep the original baseline requirement for all pre-existing plots.
     // The two new loose residual maps below are allowed to bypass it.
 
-    if( std::abs(pca_z) <= 10. || quality > 1.0 ) {
+    if (std::abs(pca_z) >= 10. || quality > 20.0)
+    {
       continue;
     }
 
@@ -453,6 +531,16 @@ void MakeResidualHistograms(
       ntpc_clusters > 30 &&
       std::abs(pca_z) < 15. &&
       pt > 0.;
+
+    // New phase-space QA for studying charge symmetry and distortion stability.
+    // These plots use the same fixed PCA-z region on both sides.
+    const bool passDistortionPhaseSpaceQA =
+      ntpc_clusters > 20 &&
+      std::abs(pca_z) < 10. &&
+      pt > 0.3 &&
+      std::isfinite(eta) &&
+      std::isfinite(rDCA_zero) &&
+      std::abs(rDCA_zero) < 2.;
 
     // Original dE/dx selection.
     const bool passDedx =
@@ -509,6 +597,24 @@ void MakeResidualHistograms(
       {
         h.h_rDCA_qOverPt->Fill(qOverPt, rDCA_zero);
         h.h_rDCA_qOverPt_pt->Fill(qOverPt, rDCA_zero, pt);
+      }
+
+      if (passDistortionPhaseSpaceQA)
+      {
+        h.h_pt_phi_rdca3->Fill(phi_px_py, pt);
+        h.h_pt_eta_rdca3->Fill(eta, pt);
+
+        h.h_rDCAzero_phi_rdca3->Fill(phi_px_py, rDCA_zero);
+        h.h_rDCAzero_eta_rdca3->Fill(eta, rDCA_zero);
+
+        h.h_rDCAzero_qOverPt_phi_rdca3->Fill(phi_px_py, qOverPt, rDCA_zero);
+        h.h_rDCAzero_qOverPt_eta_rdca3->Fill(eta, qOverPt, rDCA_zero);
+
+        h.p_mean_rDCAzero_phi_eta_rdca3->Fill(phi_px_py, eta, rDCA_zero);
+        h.p_mean_qOverPt_phi_eta_rdca3->Fill(phi_px_py, eta, qOverPt);
+
+        
+        h.h_pt_phi_eta_rdca3->Fill( phi_px_py, eta, pt);
       }
 
       if (passDedx)
