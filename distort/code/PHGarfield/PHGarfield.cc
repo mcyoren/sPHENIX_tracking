@@ -377,6 +377,13 @@ void PHGarfield::GetElectricFieldVcm(double x_cm, double y_cm, double z_cm, doub
   {
     ex_vcm += delta_er_vcm * x_cm / r_cm;
     ey_vcm += delta_er_vcm * y_cm / r_cm;
+
+  // Brute-force test: add E_phi = +30 V/m = +0.3 V/cm.
+  // Positive E_phi points in the direction of increasing phi.
+  //constexpr double test_ephi_vcm = 0.3;
+
+  //ex_vcm += -test_ephi_vcm * y_cm / r_cm;
+  //ey_vcm +=  test_ephi_vcm * x_cm / r_cm;
   }
 
   // hEzDefault is expressed along the local coordinate s = |z|.
