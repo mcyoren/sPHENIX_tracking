@@ -78,10 +78,14 @@ namespace
     TH2F* h_armenteros_podolanski = nullptr;
     TH2F* h_pair_dca_vs_delta_pca_z = nullptr;
 
-    // Compact 3D histograms: V0 pT vs mass vs |pairDCA|.
+    // Compact 3D histograms.
     TH3F* h3_k0s = nullptr;
     TH3F* h3_lambda = nullptr;
     TH3F* h3_antilambda = nullptr;
+
+    // Daughter pT correlations versus K0S invariant mass.
+    TH3F* h3_k0s_pt1_vs_pt2_vs_mass = nullptr;
+    TH3F* h3_k0s_ptplus_vs_ptminus_vs_mass = nullptr;
   };
   constexpr double kTwoPi = 2.0 * TMath::Pi();
 
@@ -208,6 +212,24 @@ namespace
       30, 0.0, 5.0,
       80, 0.30, 0.70,
       20, 0.0, 4.0);
+
+    h.h3_k0s_pt1_vs_pt2_vs_mass = new TH3F(
+      "h3_Kshort_pt1_vs_pt2_vs_mass",
+      "K^{0}_{S}: daughter p_{T,1} vs p_{T,2} vs mass" + tag +
+        ";p_{T,1}^{#pi} [GeV/c];p_{T,2}^{#pi} [GeV/c];"
+        "m_{#pi^{+}#pi^{-}} [GeV/c^{2}]",
+      50, 0.0, 5.0,
+      50, 0.0, 5.0,
+      40, 0.40, 0.60);
+
+    h.h3_k0s_ptplus_vs_ptminus_vs_mass = new TH3F(
+      "h3_Kshort_ptplus_vs_ptminus_vs_mass",
+      "K^{0}_{S}: p_{T}^{#pi^{+}} vs p_{T}^{#pi^{-}} vs mass" + tag +
+        ";p_{T}^{#pi^{+}} [GeV/c];p_{T}^{#pi^{-}} [GeV/c];"
+        "m_{#pi^{+}#pi^{-}} [GeV/c^{2}]",
+      50, 0.0, 5.0,
+      50, 0.0, 5.0,
+      40, 0.40, 0.60);
 
     h.h3_lambda = new TH3F(
       "h3_mass_Lambda_vs_v0_pt_vs_pairDCA",
@@ -425,7 +447,7 @@ void MakeK0sPairHistograms(
     },
     {
       "cut03_baseline",
-      "|z|<15, pt>0.30, dz<0.50, pairDCA<2.0",
+      "|pca_z|<15, pt>0.20, |pca1_z-pca2_z|<0.50, pairDCA<2.0, DIRA>0.85, Lproj > 2",
       15.0, 0.50, 0.20, 2.0, 0.99, 2.00, 0.85, 15.0, 30
     },
     {
@@ -788,6 +810,15 @@ void MakeK0sPairHistograms(
         h.h3_k0s->Fill(
           v0_pt, mass_Kshort, absPairDCA);
 
+        h.h3_k0s_pt1_vs_pt2_vs_mass->Fill(
+          pt1, pt2, mass_Kshort);
+
+        if (category == ChargeCategory::Unlike)
+        {
+          h.h3_k0s_ptplus_vs_ptminus_vs_mass->Fill(
+            positivePt, negativePt, mass_Kshort);
+        }
+
         h.h_armenteros_podolanski->Fill(
           alpha, qT);
 
@@ -844,6 +875,14 @@ void MakeK0sPairHistograms(
         h.h_k0s_mass->Fill(mass_Kshort);
         h.h_k0s_mass_vs_v0pt->Fill(v0_pt, mass_Kshort);
         h.h3_k0s->Fill(v0_pt, mass_Kshort, absPairDCA);
+        h.h3_k0s_pt1_vs_pt2_vs_mass->Fill(
+          pt1, pt2, mass_Kshort);
+
+        if (category == ChargeCategory::Unlike)
+        {
+          h.h3_k0s_ptplus_vs_ptminus_vs_mass->Fill(
+            positivePt, negativePt, mass_Kshort);
+        }
 
         h.h_armenteros_podolanski->Fill(alpha, qT);
         h.h_pair_dca_vs_delta_pca_z->Fill(

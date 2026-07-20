@@ -365,7 +365,9 @@ void MakeResidualHistograms(
   const char* filePattern = "*.root",
   const char* outputDir = "output",
   const char* outputName = "residual_histograms.root",
-  const char* treeName = "residuals")
+  const char* treeName = "residuals",
+  const bool recalc_rDCA_zero = true
+)
 {
   TH1::AddDirectory(kTRUE);
 
@@ -400,6 +402,11 @@ void MakeResidualHistograms(
   Double_t rDCA_zero = 0.;
   Double_t zDCA = 0.;
   Double_t quality = 0.;
+  Double_t pca_x = 0.;
+  Double_t pca_y = 0.;
+
+  Double_t new_vertex_x = 0.158;
+  Double_t new_vertex_y = 0.285;
 
   // Vector branches.
   std::vector<unsigned int>* layer = nullptr;
@@ -427,6 +434,12 @@ void MakeResidualHistograms(
   chain.SetBranchAddress("cluster_r", &cluster_r);
   chain.SetBranchAddress("residual_rphi", &residual_rphi);
   chain.SetBranchAddress("residual_z", &residual_z);
+
+  if (recalc_rDCA_zero)
+  {
+    chain.SetBranchAddress("pca_x", &pca_x);
+    chain.SetBranchAddress("pca_y", &pca_y);
+  }
 
   const bool hasClusterPhi = (chain.GetBranch("cluster_phi") != nullptr);
   if (hasClusterPhi)
@@ -504,7 +517,12 @@ void MakeResidualHistograms(
       continue;
     }
 
-    const bool passBaseline = ntpc_clusters >= 30;
+    if (recalc_rDCA_zero)
+    {
+      rDCA_zero = std::hypot(pca_x + py/(0.003*charge*1.4) - new_vertex_x, pca_y - px/(0.003*charge*1.4) - new_vertex_y) - std::abs(pt/(0.003*charge*1.4));
+    }
+
+    const bool passBaseline = ntpc_clusters >= 20;
 
     const auto activeCategories = categoriesForTrack(side, charge);
     const double phi_px_py = std::atan2(px, py);
@@ -515,7 +533,7 @@ void MakeResidualHistograms(
     // Original selection:
     // ntpc_clusters>30 && pt>0.5 && abs(zDCA)<2
     const bool passSidePca =
-      passBaseline && ntpc_clusters > 30 && pt > 0.5 && std::abs(zDCA) < 2e6;
+      passBaseline && ntpc_clusters > 20 && pt > 0.2 && std::abs(zDCA) < 2e6;
 
     // Original selection:
     // ntpc_clusters>30 && pca_z in (-15,15) && pt>0.3
@@ -537,15 +555,15 @@ void MakeResidualHistograms(
     const bool passDistortionPhaseSpaceQA =
       ntpc_clusters > 20 &&
       std::abs(pca_z) < 10. &&
-      pt > 0.3 &&
+      pt > 0.2 &&
       std::isfinite(eta) &&
       std::isfinite(rDCA_zero) &&
-      std::abs(rDCA_zero) < 2.;
+      std::abs(rDCA_zero) < 99.;
 
     // Original dE/dx selection.
     const bool passDedx =
       passBaseline &&
-      ntpc_clusters > 25 &&
+      ntpc_clusters > 30 &&
       std::abs(rDCA_zero) < 2. &&
       std::abs(zDCA) < 2;
 
@@ -553,7 +571,7 @@ void MakeResidualHistograms(
     // The rDCA_zero distributions themselves remain uncut in rDCA_zero.
     const bool passResidualTrack =
       passBaseline &&
-      std::isfinite(rDCA_zero) && std::abs(rDCA_zero) < 2.;
+      std::isfinite(rDCA_zero) && std::abs(rDCA_zero) < 10.;
 
     // New loose residual-map selection only. It intentionally bypasses
     // the baseline ntpc_clusters >= 30 selection used by all existing plots.
@@ -565,10 +583,10 @@ void MakeResidualHistograms(
       std::abs(rDCA_zero) < 2.;
 
     // Existing cluster residual histograms retain their pT > 2 GeV/c cut.
-    const bool passClusterResidual = passResidualTrack && pt > 2.;
+    const bool passClusterResidual = passResidualTrack && pt > 0.2;
 
     // New residual maps are made with two thresholds.
-    const bool passClusterMapPt1 = passResidualTrack && pt > 1.;
+    const bool passClusterMapPt1 = passResidualTrack && pt > 0.2;
     const bool passClusterMapPt2 = passResidualTrack && pt > 2.;
 
     for (const auto& category : activeCategories)
@@ -666,7 +684,7 @@ void MakeResidualHistograms(
       // Apply the rejection independently so a bad rphi residual does not
       // discard an otherwise valid z residual, and vice versa.
       const bool goodRphiResidual = std::abs(drphi) < 2.;
-      const bool goodZResidual = std::abs(dz) < 2.;
+      const bool goodZResidual = std::abs(dz) < 9999.;
 
       for (const auto& category : activeCategories)
       {
