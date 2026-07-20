@@ -432,22 +432,22 @@ void MakeK0sPairHistograms(
   const std::vector<Selection> selections = {
     {
       "cut00_very_loose",
-      "|z|<20, pt>0.2, dz<1.50, pairDCA<6.0",
-      20.0, 1.50, 0.20, 3.0, 0.99, 6.00, 0.70, 20.0, 20
+      "|pca_z|<20, pt>0.20, |pca1_z-pca2_z|<1.50, pairDCA<6.0, DIRA>0.7, Lproj > 2",
+      20.0, 1.50, 0.20, 2.0, 0.99, 6.00, 0.70, 20.0, 20
     },
     {
       "cut01_loose",
-      "|z|<18, pt>0.2, dz<1.00, pairDCA<4.0",
+      "|pca_z|<18, pt>0.20, |pca1_z-pca2_z|<1.00, pairDCA<4.0, DIRA>0.75, Lproj > 2",
       18.0, 1.00, 0.20, 2.0, 0.99, 4.00, 0.75, 20.0, 20
     },
     {
       "cut02_preselection",
-      "|z|<15, pt>0.25, dz<0.70, pairDCA<3.0",
+      "|pca_z|<15, pt>0.20, |pca1_z-pca2_z|<0.70, pairDCA<3.0, DIRA>0.80, Lproj > 2 cm, n_tpc_clusters>25",
       15.0, 0.70, 0.20, 2.0, 0.99, 3.00, 0.80, 18.0, 25
     },
     {
       "cut03_baseline",
-      "|pca_z|<15, pt>0.20, |pca1_z-pca2_z|<0.50, pairDCA<2.0, DIRA>0.85, Lproj > 2",
+      "|pca_z|<15, pt>0.20, |pca1_z-pca2_z|<0.50, pairDCA<2.0, DIRA>0.85, Lproj > 2 cm, n_tpc_hits>30",
       15.0, 0.50, 0.20, 2.0, 0.99, 2.00, 0.85, 15.0, 30
     },
     {
