@@ -211,7 +211,7 @@ namespace
     h.etaMax->Fill(std::max(etaPos, etaNeg), mass);
     h.phiPos->Fill(phiPos, mass);
     h.phiNeg->Fill(phiNeg, mass);
-    h.deltaPhi->Fill(wrapPhi(phiPos - phiNeg), mass);
+    ///h.deltaPhi->Fill(wrapPhi(phiPos - phiNeg), mass);
     h.opening->Fill(opening, mass);
     if (ptPos > 0.) h.qOverPtPos->Fill(1.0/ptPos, mass);
     if (ptNeg > 0.) h.qOverPtNeg->Fill(-1.0/ptNeg, mass);
@@ -223,7 +223,7 @@ namespace
     h.qualityMax->Fill(std::max(qualityPos, qualityNeg), mass);
     h.massRecalc->Fill(massRecalc, mass);
     h.massDifference->Fill(mass - massRecalc, mass);
-    h.deltaPhiVsMassVsPt->Fill(mass, v0Pt, wrapPhi(phiPos - phiNeg));
+    //h.deltaPhiVsMassVsPt->Fill(mass, v0Pt, wrapPhi(phiPos - phiNeg));
   }
 
   struct WindowMaps
@@ -426,10 +426,31 @@ void StudyK0sDoublePeakQA(const char* inputDir = ".",
       npoints1 > 20 && npoints2 > 20 &&
       quality1 < 1.5 && quality2 < 1.5;
 
+
+    const bool exactCut2 =
+      pca_z > -10.f && pca_z < 10.f &&
+      absDeltaPcaZ < 0.2 &&
+      pt1 > 0.2 && pt2 > 0.2 &&
+      decayRadius > 2.0 &&
+      absAlpha < 0.99 &&
+      absPairDCA < 0.5 &&
+      dira > 0.95 &&
+      npoints1 > 30 && npoints2 > 30 &&
+      quality1 < 0.5 && quality2 < 0.5;
+
+
     if (!exactCut1) continue;
+
     const double phiPos0 = std::atan2(charge1==1 ? py1 : py2, charge1==1 ? px1 : px2);
     const double phiNeg0 = std::atan2(charge1==1 ? py2 : py1, charge1==1 ? px2 : px1);
     const double deltaPhi0 = wrapPhi(phiPos0 - phiNeg0);
+
+    if(exactCut2) 
+    {
+      massQA.deltaPhi->Fill(deltaPhi0, mass_Kshort);
+      massQA.deltaPhiVsMassVsPt->Fill(mass_Kshort, v0_pt, deltaPhi0);
+    }
+
     if (deltaPhi0 <0.8 - 0.4 * ( v0_pt  < 2.0 ? v0_pt : 2.0 ) )
     {
       continue;

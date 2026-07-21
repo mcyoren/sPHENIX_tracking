@@ -401,7 +401,7 @@ void MakeResidualHistograms(
   Double_t pca_z = 0.;
   Double_t rDCA_zero = 0.;
   Double_t zDCA = 0.;
-  Float_t quality = 0.;
+  Double_t quality = 0.;
   Double_t pca_x = 0.;
   Double_t pca_y = 0.;
 
