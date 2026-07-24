@@ -177,6 +177,20 @@ class TpcV0CandidateTree : public SubsysReco
   void set_pair_dca_max(const double value) { m_pair_dca_max = value; }
   void set_pair_dira_min(const double value) { m_pair_dira_min = value; }
   void set_write_same_sign_pairs(const bool value) { m_write_same_sign_pairs = value; }
+
+  // false: evaluate daughter momenta at their mutual pair-PCA points.
+  // true:  evaluate daughter momenta at each track's PCA to the primary vertex.
+  void set_use_primary_vertex_kinematics(const bool value)
+  {
+    m_use_primary_vertex_kinematics = value;
+  }
+
+  // Applied to same-sign K0S-background entries after the common pair cuts.
+  void set_kshort_mass_range(const double min_value, const double max_value)
+  {
+    m_kshort_mass_min = min_value;
+    m_kshort_mass_max = max_value;
+  }
   void set_write_cluster_residual_tree(const bool value) { m_write_cluster_residual_tree = value; }
 
  private:
@@ -501,7 +515,8 @@ class TpcV0CandidateTree : public SubsysReco
   void fill_cluster_residual_rows(const Tracklet &tracklet, const Vec3 &primary_vertex,
                                   int run_number, int event_number);
   bool track_pca_to_xy(const Tracklet &tracklet, const Vec3 &beamline,
-                       Vec3 &pca, double &signed_dca_xy) const;
+                       Vec3 &pca, double &signed_dca_xy,
+                       Vec3 *momentum_at_pca = nullptr) const;
   bool choose_pattern_collision_vertex(const Tracklet &tracklet,
                                        Tpc_PolyTrackVertexContainer *vertices,
                                        Vec3 &vertex, double &z_rms,
@@ -662,6 +677,9 @@ class TpcV0CandidateTree : public SubsysReco
   double m_pair_dca_max{-1.0};
   double m_pair_dira_min{-2.0};
   bool m_write_same_sign_pairs{false};
+  bool m_use_primary_vertex_kinematics{false};
+  double m_kshort_mass_min{0.40};
+  double m_kshort_mass_max{0.60};
   bool m_print_timing{false};
 
   std::uint64_t m_counter_raw_pairs{0};

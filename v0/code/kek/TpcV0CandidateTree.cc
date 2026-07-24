@@ -887,6 +887,10 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
   const double nan = std::numeric_limits<double>::quiet_NaN();
   pca = {nan, nan, nan};
   signed_dca_xy = nan;
+  if (momentum_at_pca)
+  {
+    *momentum_at_pca = {nan, nan, nan};
+  }
 
   if (tracklet.has_kalman && !tracklet.kalman.states_smoothed.empty())
   {
@@ -920,11 +924,20 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
         const auto closest_state = TpcTrackKalmanFitter::propagate_state(
             state, path_cm, config, tracklet.kalman.mass_gev);
         pca = TpcTrackKalmanFitter::state_position(closest_state);
+        if (momentum_at_pca)
+        {
+          *momentum_at_pca =
+              TpcTrackKalmanFitter::state_momentum(closest_state);
+        }
         signed_dca_xy = center_distance - radius;
         return finite(pca) && std::isfinite(signed_dca_xy);
       }
 
       pca = position;
+      if (momentum_at_pca)
+      {
+        *momentum_at_pca = momentum;
+      }
       signed_dca_xy = -radius;
       return finite(pca);
     }
@@ -938,6 +951,10 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
     const double scale_to_pca = -(relative.x * momentum.x + relative.y * momentum.y) /
                                 transverse_momentum2;
     pca = add(position, scale(momentum, scale_to_pca));
+    if (momentum_at_pca)
+    {
+      *momentum_at_pca = momentum;
+    }
     signed_dca_xy = (relative.x * momentum.y - relative.y * momentum.x) /
                     std::sqrt(transverse_momentum2);
     return finite(pca) && std::isfinite(signed_dca_xy);
@@ -955,6 +972,10 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
       theta = unwrap_to_near(theta_raw, tracklet.helix.theta_first);
     }
     pca = helix_point(tracklet.helix, theta);
+    if (momentum_at_pca)
+    {
+      *momentum_at_pca = helix_momentum(tracklet.helix, theta);
+    }
     signed_dca_xy = center_distance - tracklet.helix.radius;
     return finite(pca) && std::isfinite(signed_dca_xy);
   }
@@ -969,6 +990,10 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
                                 relative.y * tracklet.momentum.y) /
                               transverse_momentum2;
   pca = add(tracklet.position, scale(tracklet.momentum, scale_to_pca));
+  if (momentum_at_pca)
+  {
+    *momentum_at_pca = tracklet.momentum;
+  }
   signed_dca_xy = (relative.x * tracklet.momentum.y -
                    relative.y * tracklet.momentum.x) /
                   std::sqrt(transverse_momentum2);
@@ -1170,7 +1195,38 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
   }
 
   const Vec3 pair_vertex = scale(add(pca1, pca2), 0.5);
-  const Vec3 total_mom = add(mom1, mom2);
+
+  // By default use the momenta at the two daughter-daughter PCA points.
+  // Optionally reevaluate each daughter at its PCA to the primary vertex.
+  Vec3 kinematic_mom1 = mom1;
+  Vec3 kinematic_mom2 = mom2;
+  if (m_use_primary_vertex_kinematics)
+  {
+    Vec3 primary_pca1;
+    Vec3 primary_pca2;
+    Vec3 primary_mom1;
+    Vec3 primary_mom2;
+    double primary_dca_xy1 = quiet_nan();
+    double primary_dca_xy2 = quiet_nan();
+
+    const bool have_primary1 =
+        track_pca_to_xy(track1, primary_vertex,
+                        primary_pca1, primary_dca_xy1, &primary_mom1);
+    const bool have_primary2 =
+        track_pca_to_xy(track2, primary_vertex,
+                        primary_pca2, primary_dca_xy2, &primary_mom2);
+
+    if (have_primary1 && finite(primary_mom1) && norm(primary_mom1) > 0.0)
+    {
+      kinematic_mom1 = primary_mom1;
+    }
+    if (have_primary2 && finite(primary_mom2) && norm(primary_mom2) > 0.0)
+    {
+      kinematic_mom2 = primary_mom2;
+    }
+  }
+
+  const Vec3 total_mom = add(kinematic_mom1, kinematic_mom2);
   const Vec3 flight = subtract(pair_vertex, primary_vertex);
   const double cos_theta = vector_cosine(flight, total_mom);
   if (!std::isfinite(cos_theta) || norm(flight) <= 0.0 || norm(total_mom) <= 0.0)
@@ -1179,8 +1235,10 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
     return false;
   }
 
-  const Vec3 &pplus = (track1.charge > 0) ? mom1 : mom2;
-  const Vec3 &pminus = (track1.charge > 0) ? mom2 : mom1;
+  const Vec3 &pplus =
+      (track1.charge > 0) ? kinematic_mom1 : kinematic_mom2;
+  const Vec3 &pminus =
+      (track1.charge > 0) ? kinematic_mom2 : kinematic_mom1;
   double alpha = 0.0;
   double qt = 0.0;
   if (!armenteros(pplus, pminus, alpha, qt))
@@ -1215,20 +1273,22 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
     pca_to_true_z = std::abs(delta.z);
   }
 
-  const Vec3 positive_mom = (track1.charge > 0) ? mom1 : mom2;
-  const Vec3 negative_mom = (track1.charge > 0) ? mom2 : mom1;
+  const Vec3 positive_mom =
+      (track1.charge > 0) ? kinematic_mom1 : kinematic_mom2;
+  const Vec3 negative_mom =
+      (track1.charge > 0) ? kinematic_mom2 : kinematic_mom1;
 
   reset_pair_row();
   m_pair.run = run_number;
   m_pair.evt = event_number;
   m_pair.cross1 = 0;
   m_pair.cross2 = 0;
-  m_pair.px1 = static_cast<float>(mom1.x);
-  m_pair.py1 = static_cast<float>(mom1.y);
-  m_pair.pz1 = static_cast<float>(mom1.z);
-  m_pair.px2 = static_cast<float>(mom2.x);
-  m_pair.py2 = static_cast<float>(mom2.y);
-  m_pair.pz2 = static_cast<float>(mom2.z);
+  m_pair.px1 = static_cast<float>(kinematic_mom1.x);
+  m_pair.py1 = static_cast<float>(kinematic_mom1.y);
+  m_pair.pz1 = static_cast<float>(kinematic_mom1.z);
+  m_pair.px2 = static_cast<float>(kinematic_mom2.x);
+  m_pair.py2 = static_cast<float>(kinematic_mom2.y);
+  m_pair.pz2 = static_cast<float>(kinematic_mom2.z);
   m_pair.dca_xy1 = static_cast<float>(dca1.first);
   m_pair.dca_z1 = static_cast<float>(dca1.second);
   m_pair.dca_xy2 = static_cast<float>(dca2.first);
@@ -1257,9 +1317,20 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
   m_pair.v0_py = static_cast<float>(total_mom.y);
   m_pair.v0_pz = static_cast<float>(total_mom.z);
   m_pair.v0_pt = static_cast<float>(pt(total_mom));
-  m_pair.mass_Kshort = static_cast<float>(invariant_mass(mom1, kPionMass, mom2, kPionMass));
+  m_pair.mass_Kshort = static_cast<float>(
+      invariant_mass(kinematic_mom1, kPionMass,
+                     kinematic_mom2, kPionMass));
   m_pair.mass_Lambda = static_cast<float>(invariant_mass(positive_mom, kProtonMass, negative_mom, kPionMass));
   m_pair.mass_AntiLambda = static_cast<float>(invariant_mass(positive_mom, kPionMass, negative_mom, kProtonMass));
+
+  const bool same_sign = track1.charge == track2.charge;
+  if (same_sign &&
+      (m_pair.mass_Kshort < m_kshort_mass_min ||
+       m_pair.mass_Kshort > m_kshort_mass_max))
+  {
+    ++m_counter_reject_pair_selection;
+    return false;
+  }
 
   m_pair.true_decay_x = static_cast<float>(true_decay.x);
   m_pair.true_decay_y = static_cast<float>(true_decay.y);
@@ -1277,8 +1348,12 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
   m_pair.truth_px2 = static_cast<float>(track2.truth_momentum.x);
   m_pair.truth_py2 = static_cast<float>(track2.truth_momentum.y);
   m_pair.truth_pz2 = static_cast<float>(track2.truth_momentum.z);
-  m_pair.cos_mom1_truth = static_cast<float>(vector_cosine(mom1, track1.truth_momentum));
-  m_pair.cos_mom2_truth = static_cast<float>(vector_cosine(mom2, track2.truth_momentum));
+  m_pair.cos_mom1_truth =
+      static_cast<float>(vector_cosine(kinematic_mom1,
+                                       track1.truth_momentum));
+  m_pair.cos_mom2_truth =
+      static_cast<float>(vector_cosine(kinematic_mom2,
+                                       track2.truth_momentum));
   m_pair.pca_theta1 = static_cast<float>(theta1);
   m_pair.pca_theta2 = static_cast<float>(theta2);
   if (track1.has_kalman)
