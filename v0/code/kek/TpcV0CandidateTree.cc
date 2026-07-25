@@ -48,6 +48,7 @@ namespace
   constexpr double kPi = 3.14159265358979323846;
   constexpr double kPionMass = 0.13957039;
   constexpr double kProtonMass = 0.938272088;
+  constexpr double kKaonMass = 0.493677;
 
   template <class T>
   constexpr T square(const T &value)
@@ -334,13 +335,9 @@ int TpcV0CandidateTree::process_event(PHCompositeNode *topNode)
     auto &tracklet = entry.second;
     tracklet.has_beamline_pca = track_pca_to_xy(
         tracklet, Vec3{0.0, 0.0, 0.0}, tracklet.beamline_pca, tracklet.rdca_zero);
-    tracklet.has_pattern_vertex = choose_pattern_collision_vertex(
-        tracklet, pattern_vertices, tracklet.pattern_vertex,
-        tracklet.pattern_vertex_z_rms, tracklet.pattern_vertex_ntracks);
-    const Vec3 &dca_vertex = tracklet.has_pattern_vertex
-                                 ? tracklet.pattern_vertex
-                                 : primary_vertex;
-    tracklet.vertex_dca = fitted_track_dca_to_vertex(tracklet, dca_vertex);
+    // The current pattern vertexer is not used for individual-track DCA.
+    tracklet.has_pattern_vertex = false;
+    tracklet.vertex_dca = fitted_track_dca_to_vertex(tracklet, primary_vertex);
     tracklet.has_vertex_dca =
         std::isfinite(tracklet.vertex_dca.first) &&
         std::isfinite(tracklet.vertex_dca.second);
@@ -369,7 +366,10 @@ int TpcV0CandidateTree::process_event(PHCompositeNode *topNode)
   const auto track_qa_start = std::chrono::steady_clock::now();
   for (const auto *tracklet : tracklets)
   {
-    fill_track_row(*tracklet, primary_vertex, run_number, event_number);
+    if (m_write_track_tree)
+    {
+      fill_track_row(*tracklet, primary_vertex, run_number, event_number);
+    }
     if (m_cluster_residual_tree)
     {
       fill_cluster_residual_rows(*tracklet, primary_vertex, run_number, event_number);
@@ -466,7 +466,7 @@ int TpcV0CandidateTree::End(PHCompositeNode * /*topNode*/)
     {
       m_pair_tree->Write();
     }
-    if (m_track_tree)
+    if (m_track_tree && m_write_track_tree)
     {
       m_track_tree->Write();
     }
@@ -594,6 +594,7 @@ std::map<int, TpcV0CandidateTree::Tracklet> TpcV0CandidateTree::build_tracklets(
     point.momentum = {hit->get_px(0), hit->get_py(0), hit->get_pz(0)};
     point.t = hit->get_t(0);
     point.path = hit->get_path_length();
+    assign_point_measurement_metadata(point, tracklet.points.size());
     if (finite(point.position) && finite(point.momentum))
     {
       tracklet.points.push_back(point);
@@ -772,6 +773,7 @@ std::map<int, TpcV0CandidateTree::Tracklet> TpcV0CandidateTree::build_pattern_tr
       point.t = 0.0;
       point.path = point.layer >= 0 ? static_cast<double>(point.layer)
                                     : static_cast<double>(icluster);
+      assign_point_measurement_metadata(point, tracklet.points.size());
       if (finite(point.position))
       {
         tracklet.points.push_back(point);
@@ -882,7 +884,8 @@ bool TpcV0CandidateTree::finalize_pattern_tracklet(Tracklet &tracklet,
 bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
                                          const Vec3 &beamline,
                                          Vec3 &pca,
-                                         double &signed_dca_xy) const
+                                         double &signed_dca_xy,
+                                         Vec3 *momentum_at_pca) const
 {
   const double nan = std::numeric_limits<double>::quiet_NaN();
   pca = {nan, nan, nan};
@@ -926,8 +929,7 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
         pca = TpcTrackKalmanFitter::state_position(closest_state);
         if (momentum_at_pca)
         {
-          *momentum_at_pca =
-              TpcTrackKalmanFitter::state_momentum(closest_state);
+          *momentum_at_pca = TpcTrackKalmanFitter::state_momentum(closest_state);
         }
         signed_dca_xy = center_distance - radius;
         return finite(pca) && std::isfinite(signed_dca_xy);
@@ -1040,6 +1042,75 @@ bool TpcV0CandidateTree::choose_pattern_collision_vertex(
     }
   }
   return best_dz < std::numeric_limits<double>::max();
+}
+
+void TpcV0CandidateTree::set_kshort_selection(
+    const bool enabled, const int min_tpc_clusters, const double track_pt_min,
+    const double mass_min, const double mass_max, const double pca_z_max,
+    const double pca_dz_max, const double decay_radius_min,
+    const double alpha_abs_max, const double pair_dca_max, const double dira_min)
+{
+  m_kshort_cuts = {enabled, min_tpc_clusters, track_pt_min, mass_min, mass_max,
+                   pca_z_max, pca_dz_max, decay_radius_min, alpha_abs_max, dira_min,
+                   -1.0, -1.0, pair_dca_max, -1.0};
+}
+
+void TpcV0CandidateTree::set_lambda_selection(
+    const bool enabled, const int min_tpc_clusters, const double track_pt_min,
+    const double mass_min, const double mass_max, const double pca_z_max,
+    const double pca_dz_max, const double decay_radius_min,
+    const double alpha_abs_max, const double pair_dca_max, const double dira_min)
+{
+  m_lambda_cuts = {enabled, min_tpc_clusters, track_pt_min, mass_min, mass_max,
+                   pca_z_max, pca_dz_max, decay_radius_min, alpha_abs_max, dira_min,
+                   -1.0, -1.0, pair_dca_max, -1.0};
+}
+
+void TpcV0CandidateTree::set_antilambda_selection(
+    const bool enabled, const int min_tpc_clusters, const double track_pt_min,
+    const double mass_min, const double mass_max, const double pca_z_max,
+    const double pca_dz_max, const double decay_radius_min,
+    const double alpha_abs_max, const double pair_dca_max, const double dira_min)
+{
+  m_antilambda_cuts = {enabled, min_tpc_clusters, track_pt_min, mass_min, mass_max,
+                       pca_z_max, pca_dz_max, decay_radius_min, alpha_abs_max, dira_min,
+                       -1.0, -1.0, pair_dca_max, -1.0};
+}
+
+void TpcV0CandidateTree::set_phi_selection(
+    const bool enabled, const int min_tpc_clusters, const double track_pt_min,
+    const double mass_min, const double mass_max, const double track_dca_xy_abs_max,
+    const double track_dca_z_abs_max, const double pair_dca_max,
+    const double flight_length_max)
+{
+  m_phi_cuts = {enabled, min_tpc_clusters, track_pt_min, mass_min, mass_max,
+                -1.0, -1.0, -1.0, -1.0, -2.0,
+                track_dca_xy_abs_max, track_dca_z_abs_max,
+                pair_dca_max, flight_length_max};
+}
+
+void TpcV0CandidateTree::set_d0_selection(
+    const bool enabled, const int min_tpc_clusters, const double track_pt_min,
+    const double mass_min, const double mass_max, const double track_dca_xy_abs_max,
+    const double track_dca_z_abs_max, const double pair_dca_max,
+    const double flight_length_max)
+{
+  m_d0_cuts = {enabled, min_tpc_clusters, track_pt_min, mass_min, mass_max,
+               -1.0, -1.0, -1.0, -1.0, -2.0,
+               track_dca_xy_abs_max, track_dca_z_abs_max,
+               pair_dca_max, flight_length_max};
+}
+
+void TpcV0CandidateTree::set_antid0_selection(
+    const bool enabled, const int min_tpc_clusters, const double track_pt_min,
+    const double mass_min, const double mass_max, const double track_dca_xy_abs_max,
+    const double track_dca_z_abs_max, const double pair_dca_max,
+    const double flight_length_max)
+{
+  m_antid0_cuts = {enabled, min_tpc_clusters, track_pt_min, mass_min, mass_max,
+                   -1.0, -1.0, -1.0, -1.0, -2.0,
+                   track_dca_xy_abs_max, track_dca_z_abs_max,
+                   pair_dca_max, flight_length_max};
 }
 
 bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &track2,
@@ -1196,37 +1267,35 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
 
   const Vec3 pair_vertex = scale(add(pca1, pca2), 0.5);
 
-  // By default use the momenta at the two daughter-daughter PCA points.
-  // Optionally reevaluate each daughter at its PCA to the primary vertex.
-  Vec3 kinematic_mom1 = mom1;
-  Vec3 kinematic_mom2 = mom2;
-  if (m_use_primary_vertex_kinematics)
-  {
-    Vec3 primary_pca1;
-    Vec3 primary_pca2;
-    Vec3 primary_mom1;
-    Vec3 primary_mom2;
-    double primary_dca_xy1 = quiet_nan();
-    double primary_dca_xy2 = quiet_nan();
+  // Always preserve the daughter-daughter PCA momenta for displaced decays.
+  const Vec3 secondary_mom1 = mom1;
+  const Vec3 secondary_mom2 = mom2;
+  const Vec3 secondary_total_mom = add(secondary_mom1, secondary_mom2);
 
-    const bool have_primary1 =
-        track_pca_to_xy(track1, primary_vertex,
-                        primary_pca1, primary_dca_xy1, &primary_mom1);
-    const bool have_primary2 =
-        track_pca_to_xy(track2, primary_vertex,
-                        primary_pca2, primary_dca_xy2, &primary_mom2);
+  // Independently evaluate each daughter at its transverse PCA to the fixed
+  // primary vertex. These are stored for prompt phi/D0 analysis.
+  const double nan = quiet_nan();
+  Vec3 primary_pca1{nan, nan, nan};
+  Vec3 primary_pca2{nan, nan, nan};
+  Vec3 primary_mom1{nan, nan, nan};
+  Vec3 primary_mom2{nan, nan, nan};
+  double primary_dca_xy1 = nan;
+  double primary_dca_xy2 = nan;
 
-    if (have_primary1 && finite(primary_mom1) && norm(primary_mom1) > 0.0)
-    {
-      kinematic_mom1 = primary_mom1;
-    }
-    if (have_primary2 && finite(primary_mom2) && norm(primary_mom2) > 0.0)
-    {
-      kinematic_mom2 = primary_mom2;
-    }
-  }
+  const bool have_primary1 =
+      track_pca_to_xy(track1, primary_vertex,
+                      primary_pca1, primary_dca_xy1, &primary_mom1) &&
+      finite(primary_mom1) && norm(primary_mom1) > 0.0;
+  const bool have_primary2 =
+      track_pca_to_xy(track2, primary_vertex,
+                      primary_pca2, primary_dca_xy2, &primary_mom2) &&
+      finite(primary_mom2) && norm(primary_mom2) > 0.0;
+  const bool have_primary_pair = have_primary1 && have_primary2;
+  const Vec3 primary_total_mom =
+      have_primary_pair ? add(primary_mom1, primary_mom2)
+                        : Vec3{nan, nan, nan};
 
-  const Vec3 total_mom = add(kinematic_mom1, kinematic_mom2);
+  const Vec3 total_mom = secondary_total_mom;
   const Vec3 flight = subtract(pair_vertex, primary_vertex);
   const double cos_theta = vector_cosine(flight, total_mom);
   if (!std::isfinite(cos_theta) || norm(flight) <= 0.0 || norm(total_mom) <= 0.0)
@@ -1235,22 +1304,13 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
     return false;
   }
 
-  const Vec3 &pplus =
-      (track1.charge > 0) ? kinematic_mom1 : kinematic_mom2;
-  const Vec3 &pminus =
-      (track1.charge > 0) ? kinematic_mom2 : kinematic_mom1;
+  const Vec3 &pplus = (track1.charge > 0) ? secondary_mom1 : secondary_mom2;
+  const Vec3 &pminus = (track1.charge > 0) ? secondary_mom2 : secondary_mom1;
   double alpha = 0.0;
   double qt = 0.0;
   if (!armenteros(pplus, pminus, alpha, qt))
   {
     ++m_counter_reject_ap;
-    return false;
-  }
-
-  if (!passes_pair_selection(pca1, pca2, pair_vertex, primary_vertex,
-                             pair_dca, cos_theta, alpha))
-  {
-    ++m_counter_reject_pair_selection;
     return false;
   }
 
@@ -1273,22 +1333,51 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
     pca_to_true_z = std::abs(delta.z);
   }
 
-  const Vec3 positive_mom =
-      (track1.charge > 0) ? kinematic_mom1 : kinematic_mom2;
-  const Vec3 negative_mom =
-      (track1.charge > 0) ? kinematic_mom2 : kinematic_mom1;
+  const Vec3 positive_mom = (track1.charge > 0) ? secondary_mom1 : secondary_mom2;
+  const Vec3 negative_mom = (track1.charge > 0) ? secondary_mom2 : secondary_mom1;
+  const Vec3 primary_positive_mom =
+      have_primary_pair
+          ? ((track1.charge > 0) ? primary_mom1 : primary_mom2)
+          : Vec3{nan, nan, nan};
+  const Vec3 primary_negative_mom =
+      have_primary_pair
+          ? ((track1.charge > 0) ? primary_mom2 : primary_mom1)
+          : Vec3{nan, nan, nan};
 
   reset_pair_row();
   m_pair.run = run_number;
   m_pair.evt = event_number;
   m_pair.cross1 = 0;
   m_pair.cross2 = 0;
-  m_pair.px1 = static_cast<float>(kinematic_mom1.x);
-  m_pair.py1 = static_cast<float>(kinematic_mom1.y);
-  m_pair.pz1 = static_cast<float>(kinematic_mom1.z);
-  m_pair.px2 = static_cast<float>(kinematic_mom2.x);
-  m_pair.py2 = static_cast<float>(kinematic_mom2.y);
-  m_pair.pz2 = static_cast<float>(kinematic_mom2.z);
+  m_pair.px1 = static_cast<float>(secondary_mom1.x);
+  m_pair.py1 = static_cast<float>(secondary_mom1.y);
+  m_pair.pz1 = static_cast<float>(secondary_mom1.z);
+  m_pair.px2 = static_cast<float>(secondary_mom2.x);
+  m_pair.py2 = static_cast<float>(secondary_mom2.y);
+  m_pair.pz2 = static_cast<float>(secondary_mom2.z);
+
+  if (have_primary1)
+  {
+    m_pair.primary_px1 = static_cast<float>(primary_mom1.x);
+    m_pair.primary_py1 = static_cast<float>(primary_mom1.y);
+    m_pair.primary_pz1 = static_cast<float>(primary_mom1.z);
+    m_pair.primary_pt1 = static_cast<float>(pt(primary_mom1));
+  }
+  if (have_primary2)
+  {
+    m_pair.primary_px2 = static_cast<float>(primary_mom2.x);
+    m_pair.primary_py2 = static_cast<float>(primary_mom2.y);
+    m_pair.primary_pz2 = static_cast<float>(primary_mom2.z);
+    m_pair.primary_pt2 = static_cast<float>(pt(primary_mom2));
+  }
+  if (have_primary_pair)
+  {
+    m_pair.primary_pair_px = static_cast<float>(primary_total_mom.x);
+    m_pair.primary_pair_py = static_cast<float>(primary_total_mom.y);
+    m_pair.primary_pair_pz = static_cast<float>(primary_total_mom.z);
+    m_pair.primary_pair_pt = static_cast<float>(pt(primary_total_mom));
+  }
+
   m_pair.dca_xy1 = static_cast<float>(dca1.first);
   m_pair.dca_z1 = static_cast<float>(dca1.second);
   m_pair.dca_xy2 = static_cast<float>(dca2.first);
@@ -1318,15 +1407,70 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
   m_pair.v0_pz = static_cast<float>(total_mom.z);
   m_pair.v0_pt = static_cast<float>(pt(total_mom));
   m_pair.mass_Kshort = static_cast<float>(
-      invariant_mass(kinematic_mom1, kPionMass,
-                     kinematic_mom2, kPionMass));
-  m_pair.mass_Lambda = static_cast<float>(invariant_mass(positive_mom, kProtonMass, negative_mom, kPionMass));
-  m_pair.mass_AntiLambda = static_cast<float>(invariant_mass(positive_mom, kPionMass, negative_mom, kProtonMass));
+      invariant_mass(secondary_mom1, kPionMass,
+                     secondary_mom2, kPionMass));
+  m_pair.mass_Lambda = static_cast<float>(
+      invariant_mass(positive_mom, kProtonMass,
+                     negative_mom, kPionMass));
+  m_pair.mass_AntiLambda = static_cast<float>(
+      invariant_mass(positive_mom, kPionMass,
+                     negative_mom, kProtonMass));
+
+  if (have_primary_pair)
+  {
+    m_pair.mass_Phi = static_cast<float>(
+        invariant_mass(primary_mom1, kKaonMass,
+                       primary_mom2, kKaonMass));
+    m_pair.mass_D0 = static_cast<float>(
+        invariant_mass(primary_negative_mom, kKaonMass,
+                       primary_positive_mom, kPionMass));
+    m_pair.mass_AntiD0 = static_cast<float>(
+        invariant_mass(primary_positive_mom, kKaonMass,
+                       primary_negative_mom, kPionMass));
+  }
+
+  const bool pass_kshort = passes_species_selection(
+      m_kshort_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
+      dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_Kshort, true);
+  const bool pass_lambda = passes_species_selection(
+      m_lambda_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
+      dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_Lambda, true);
+  const bool pass_antilambda = passes_species_selection(
+      m_antilambda_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
+      dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_AntiLambda, true);
+  const bool pass_phi = passes_species_selection(
+      m_phi_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
+      dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_Phi, false);
+  const bool pass_d0 = passes_species_selection(
+      m_d0_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
+      dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_D0, false);
+  const bool pass_antid0 = passes_species_selection(
+      m_antid0_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
+      dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_AntiD0, false);
 
   const bool same_sign = track1.charge == track2.charge;
-  if (same_sign &&
-      (m_pair.mass_Kshort < m_kshort_mass_min ||
-       m_pair.mass_Kshort > m_kshort_mass_max))
+  if (same_sign)
+  {
+    const bool pass_same_sign_kshort =
+        pass_kshort &&
+        m_pair.mass_Kshort >= m_same_sign_kshort_mass_min &&
+        m_pair.mass_Kshort <= m_same_sign_kshort_mass_max;
+    if (pass_same_sign_kshort)
+    {
+      m_pair.candidate_mask |= CandidateKShort;
+    }
+  }
+  else
+  {
+    if (pass_kshort) m_pair.candidate_mask |= CandidateKShort;
+    if (pass_lambda) m_pair.candidate_mask |= CandidateLambda;
+    if (pass_antilambda) m_pair.candidate_mask |= CandidateAntiLambda;
+    if (pass_phi) m_pair.candidate_mask |= CandidatePhi;
+    if (pass_d0) m_pair.candidate_mask |= CandidateD0;
+    if (pass_antid0) m_pair.candidate_mask |= CandidateAntiD0;
+  }
+
+  if (m_pair.candidate_mask == 0U)
   {
     ++m_counter_reject_pair_selection;
     return false;
@@ -1348,12 +1492,8 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
   m_pair.truth_px2 = static_cast<float>(track2.truth_momentum.x);
   m_pair.truth_py2 = static_cast<float>(track2.truth_momentum.y);
   m_pair.truth_pz2 = static_cast<float>(track2.truth_momentum.z);
-  m_pair.cos_mom1_truth =
-      static_cast<float>(vector_cosine(kinematic_mom1,
-                                       track1.truth_momentum));
-  m_pair.cos_mom2_truth =
-      static_cast<float>(vector_cosine(kinematic_mom2,
-                                       track2.truth_momentum));
+  m_pair.cos_mom1_truth = static_cast<float>(vector_cosine(secondary_mom1, track1.truth_momentum));
+  m_pair.cos_mom2_truth = static_cast<float>(vector_cosine(secondary_mom2, track2.truth_momentum));
   m_pair.pca_theta1 = static_cast<float>(theta1);
   m_pair.pca_theta2 = static_cast<float>(theta2);
   if (track1.has_kalman)
@@ -1390,9 +1530,309 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
   m_pair.npoints1 = static_cast<short>(track1.npoints);
   m_pair.npoints2 = static_cast<short>(track2.npoints);
 
+  const bool keep_kshort_details =
+      m_write_kshort_daughter_details && pass_kshort &&
+      std::isfinite(m_pair.mass_Kshort) &&
+      m_pair.mass_Kshort >= m_kshort_detail_mass_min &&
+      m_pair.mass_Kshort <= m_kshort_detail_mass_max;
+  m_pair.has_kshort_daughter_details = keep_kshort_details ? 1 : 0;
+  if (keep_kshort_details)
+  {
+    fill_daughter_detail_row(track1, m_pair.daughter1);
+    fill_daughter_detail_row(track2, m_pair.daughter2);
+  }
+
   m_pair_tree->Fill();
   ++m_counter_written;
   return true;
+}
+
+
+bool TpcV0CandidateTree::is_tpc_transition_layer(const int layer) const
+{
+  return layer == 22 || layer == 23 || layer == 38 || layer == 39;
+}
+
+void TpcV0CandidateTree::measurement_sigmas_for_layer(
+    const int layer,
+    double &sigma_rphi_cm,
+    double &sigma_r_cm,
+    double &sigma_z_cm) const
+{
+  if (is_tpc_transition_layer(layer))
+  {
+    sigma_rphi_cm = m_sigma_rphi_transition_cm;
+    sigma_r_cm = m_sigma_r_transition_cm;
+    sigma_z_cm = m_sigma_z_transition_cm;
+    return;
+  }
+
+  sigma_z_cm = m_sigma_z_cm;
+  if (layer >= 7 && layer <= 22)
+  {
+    sigma_rphi_cm = m_sigma_rphi_r1_cm;
+    sigma_r_cm = m_sigma_r_r1_cm;
+  }
+  else if (layer >= 23 && layer <= 38)
+  {
+    sigma_rphi_cm = m_sigma_rphi_r2_cm;
+    sigma_r_cm = m_sigma_r_r2_cm;
+  }
+  else if (layer >= 39 && layer <= 54)
+  {
+    sigma_rphi_cm = m_sigma_rphi_r3_cm;
+    sigma_r_cm = m_sigma_r_r3_cm;
+  }
+  else
+  {
+    sigma_rphi_cm = m_kalman_config.meas_sigma_rphi_cm;
+    sigma_r_cm = m_kalman_config.meas_sigma_r_cm;
+    sigma_z_cm = m_kalman_config.meas_sigma_z_cm;
+  }
+}
+
+void TpcV0CandidateTree::assign_point_measurement_metadata(
+    TruthPoint &point,
+    const std::size_t original_index) const
+{
+  point.original_index = original_index;
+  measurement_sigmas_for_layer(point.layer,
+                               point.sigma_rphi_cm,
+                               point.sigma_r_cm,
+                               point.sigma_z_cm);
+}
+
+void TpcV0CandidateTree::fill_daughter_detail_row(
+    const Tracklet &tracklet,
+    DaughterDetailRow &row) const
+{
+  row = {};
+  const float nan = quiet_nan();
+
+  row.track_id = tracklet.track_id;
+  row.charge = tracklet.charge;
+  row.side = tracklet.side;
+  row.npoints = tracklet.npoints;
+  row.ntpc_clusters = tracklet.ntpc_clusters;
+  row.dedx = tracklet.has_dedx ? static_cast<float>(tracklet.dedx) : nan;
+  row.px = static_cast<float>(tracklet.momentum.x);
+  row.py = static_cast<float>(tracklet.momentum.y);
+  row.pz = static_cast<float>(tracklet.momentum.z);
+  row.pt = static_cast<float>(pt(tracklet.momentum));
+  row.eta = row.pt > 0.0F
+                ? static_cast<float>(std::asinh(tracklet.momentum.z / row.pt))
+                : nan;
+  row.fit_chi2 = std::isfinite(tracklet.fit_chi2)
+                     ? static_cast<float>(tracklet.fit_chi2)
+                     : nan;
+  row.fit_ndf = tracklet.fit_ndf;
+  row.fit_chi2_ndf = std::isfinite(tracklet.fit_chi2_ndf)
+                         ? static_cast<float>(tracklet.fit_chi2_ndf)
+                         : nan;
+
+  const std::size_t npoints = tracklet.points.size();
+  row.cluster_index.reserve(npoints);
+  row.cluster_side.reserve(npoints);
+  row.layer.reserve(npoints);
+  row.cluster_x.reserve(npoints);
+  row.cluster_y.reserve(npoints);
+  row.cluster_z.reserve(npoints);
+  row.cluster_r.reserve(npoints);
+  row.cluster_phi.reserve(npoints);
+  row.fit_x.reserve(npoints);
+  row.fit_y.reserve(npoints);
+  row.fit_z.reserve(npoints);
+  row.fit_px.reserve(npoints);
+  row.fit_py.reserve(npoints);
+  row.fit_pz.reserve(npoints);
+  row.residual_r.reserve(npoints);
+  row.residual_rphi.reserve(npoints);
+  row.residual_z.reserve(npoints);
+  row.assigned_sigma_r.reserve(npoints);
+  row.assigned_sigma_rphi.reserve(npoints);
+  row.assigned_sigma_z.reserve(npoints);
+  row.recommended_for_reference_fit.reserve(npoints);
+
+  std::vector<std::size_t> kalman_state_for_point(npoints,
+                                                   std::numeric_limits<std::size_t>::max());
+  if (tracklet.has_kalman)
+  {
+    for (std::size_t state_index = 0;
+         state_index < tracklet.kalman.measurement_original_index.size();
+         ++state_index)
+    {
+      const std::size_t original_index =
+          tracklet.kalman.measurement_original_index[state_index];
+      if (original_index < npoints)
+      {
+        kalman_state_for_point[original_index] = state_index;
+      }
+    }
+  }
+
+  double previous_theta = tracklet.has_helix ? tracklet.helix.theta_first : 0.0;
+  bool have_previous_theta = false;
+
+  for (std::size_t index = 0; index < npoints; ++index)
+  {
+    const auto &point = tracklet.points[index];
+    const Vec3 &cluster = point.position;
+    const double cluster_r = pt(cluster);
+    const double cluster_phi = std::atan2(cluster.y, cluster.x);
+
+    Vec3 fit_position{quiet_nan(), quiet_nan(), quiet_nan()};
+    Vec3 fit_momentum{quiet_nan(), quiet_nan(), quiet_nan()};
+    double residual_r = quiet_nan();
+    double residual_rphi = quiet_nan();
+    double residual_z = quiet_nan();
+
+    const std::size_t kalman_state_index =
+        point.original_index < kalman_state_for_point.size()
+            ? kalman_state_for_point[point.original_index]
+            : std::numeric_limits<std::size_t>::max();
+    if (tracklet.has_kalman &&
+        kalman_state_index < tracklet.kalman.states_smoothed.size())
+    {
+      const auto &state = tracklet.kalman.states_smoothed[kalman_state_index];
+      fit_position = TpcTrackKalmanFitter::state_position(state);
+      fit_momentum = TpcTrackKalmanFitter::state_momentum(state);
+      if (finite(fit_position))
+      {
+        const Vec3 delta = subtract(cluster, fit_position);
+        const double fit_phi = std::atan2(fit_position.y, fit_position.x);
+        residual_r = std::cos(fit_phi) * delta.x + std::sin(fit_phi) * delta.y;
+        residual_rphi = -std::sin(fit_phi) * delta.x + std::cos(fit_phi) * delta.y;
+        residual_z = delta.z;
+      }
+    }
+    else if (tracklet.has_helix)
+    {
+      double theta_hint = std::atan2(cluster.y - tracklet.helix.cy,
+                                     cluster.x - tracklet.helix.cx);
+      theta_hint = unwrap_to_near(theta_hint,
+                                  have_previous_theta ? previous_theta
+                                                      : tracklet.helix.theta_first);
+      double theta = theta_hint;
+      if (!helix_point_at_beam_radius(tracklet.helix, cluster_r, theta_hint,
+                                      theta, fit_position))
+      {
+        fit_position = helix_point(tracklet.helix, theta_hint);
+        theta = theta_hint;
+      }
+
+      if (finite(fit_position))
+      {
+        previous_theta = theta;
+        have_previous_theta = true;
+        fit_momentum = helix_momentum(tracklet.helix, theta);
+        const double fit_r = pt(fit_position);
+        const double fit_phi = std::atan2(fit_position.y, fit_position.x);
+        residual_r = cluster_r - fit_r;
+        residual_rphi = cluster_r * normalize_phi(cluster_phi - fit_phi);
+        residual_z = cluster.z - fit_position.z;
+      }
+    }
+
+    const double sigma_rphi_cm = point.sigma_rphi_cm > 0.0
+                                         ? point.sigma_rphi_cm
+                                         : m_kalman_config.meas_sigma_rphi_cm;
+    const double sigma_r_cm = point.sigma_r_cm > 0.0
+                                  ? point.sigma_r_cm
+                                  : m_kalman_config.meas_sigma_r_cm;
+    const double sigma_z_cm = point.sigma_z_cm > 0.0
+                                  ? point.sigma_z_cm
+                                  : m_kalman_config.meas_sigma_z_cm;
+
+    row.cluster_index.push_back(static_cast<unsigned int>(index));
+    row.cluster_side.push_back(tracklet.side);
+    row.layer.push_back(static_cast<unsigned int>(std::max(point.layer, 0)));
+    row.cluster_x.push_back(cluster.x);
+    row.cluster_y.push_back(cluster.y);
+    row.cluster_z.push_back(cluster.z);
+    row.cluster_r.push_back(cluster_r);
+    row.cluster_phi.push_back(cluster_phi);
+    row.fit_x.push_back(fit_position.x);
+    row.fit_y.push_back(fit_position.y);
+    row.fit_z.push_back(fit_position.z);
+    row.fit_px.push_back(fit_momentum.x);
+    row.fit_py.push_back(fit_momentum.y);
+    row.fit_pz.push_back(fit_momentum.z);
+    row.residual_r.push_back(residual_r);
+    row.residual_rphi.push_back(residual_rphi);
+    row.residual_z.push_back(residual_z);
+    row.assigned_sigma_r.push_back(sigma_r_cm);
+    row.assigned_sigma_rphi.push_back(sigma_rphi_cm);
+    row.assigned_sigma_z.push_back(sigma_z_cm);
+    row.recommended_for_reference_fit.push_back(
+        static_cast<unsigned char>(
+            !(m_exclude_tpc_transition_layers && is_tpc_transition_layer(point.layer))));
+  }
+
+  if (tracklet.has_kalman)
+  {
+    row.kalman_measurement_chi2 = tracklet.kalman.measurement_chi2;
+    row.kalman_measurement_used = tracklet.kalman.measurement_used;
+  }
+}
+
+void TpcV0CandidateTree::create_daughter_detail_branches(
+    const std::string &prefix,
+    DaughterDetailRow &row)
+{
+  m_pair_tree->Branch((prefix + "_track_id").c_str(), &row.track_id,
+                      (prefix + "_track_id/I").c_str());
+  m_pair_tree->Branch((prefix + "_charge").c_str(), &row.charge,
+                      (prefix + "_charge/I").c_str());
+  m_pair_tree->Branch((prefix + "_side").c_str(), &row.side,
+                      (prefix + "_side/I").c_str());
+  m_pair_tree->Branch((prefix + "_npoints").c_str(), &row.npoints,
+                      (prefix + "_npoints/I").c_str());
+  m_pair_tree->Branch((prefix + "_ntpc_clusters").c_str(), &row.ntpc_clusters,
+                      (prefix + "_ntpc_clusters/i").c_str());
+  m_pair_tree->Branch((prefix + "_dedx").c_str(), &row.dedx,
+                      (prefix + "_dedx/F").c_str());
+  m_pair_tree->Branch((prefix + "_px").c_str(), &row.px,
+                      (prefix + "_px/F").c_str());
+  m_pair_tree->Branch((prefix + "_py").c_str(), &row.py,
+                      (prefix + "_py/F").c_str());
+  m_pair_tree->Branch((prefix + "_pz").c_str(), &row.pz,
+                      (prefix + "_pz/F").c_str());
+  m_pair_tree->Branch((prefix + "_pt").c_str(), &row.pt,
+                      (prefix + "_pt/F").c_str());
+  m_pair_tree->Branch((prefix + "_eta").c_str(), &row.eta,
+                      (prefix + "_eta/F").c_str());
+  m_pair_tree->Branch((prefix + "_fit_chi2").c_str(), &row.fit_chi2,
+                      (prefix + "_fit_chi2/F").c_str());
+  m_pair_tree->Branch((prefix + "_fit_ndf").c_str(), &row.fit_ndf,
+                      (prefix + "_fit_ndf/I").c_str());
+  m_pair_tree->Branch((prefix + "_fit_chi2_ndf").c_str(), &row.fit_chi2_ndf,
+                      (prefix + "_fit_chi2_ndf/F").c_str());
+
+  m_pair_tree->Branch((prefix + "_cluster_index").c_str(), &row.cluster_index);
+  m_pair_tree->Branch((prefix + "_cluster_side").c_str(), &row.cluster_side);
+  m_pair_tree->Branch((prefix + "_layer").c_str(), &row.layer);
+  m_pair_tree->Branch((prefix + "_cluster_x").c_str(), &row.cluster_x);
+  m_pair_tree->Branch((prefix + "_cluster_y").c_str(), &row.cluster_y);
+  m_pair_tree->Branch((prefix + "_cluster_z").c_str(), &row.cluster_z);
+  m_pair_tree->Branch((prefix + "_cluster_r").c_str(), &row.cluster_r);
+  m_pair_tree->Branch((prefix + "_cluster_phi").c_str(), &row.cluster_phi);
+  m_pair_tree->Branch((prefix + "_fit_x").c_str(), &row.fit_x);
+  m_pair_tree->Branch((prefix + "_fit_y").c_str(), &row.fit_y);
+  m_pair_tree->Branch((prefix + "_fit_z").c_str(), &row.fit_z);
+  m_pair_tree->Branch((prefix + "_fit_px").c_str(), &row.fit_px);
+  m_pair_tree->Branch((prefix + "_fit_py").c_str(), &row.fit_py);
+  m_pair_tree->Branch((prefix + "_fit_pz").c_str(), &row.fit_pz);
+  m_pair_tree->Branch((prefix + "_residual_r").c_str(), &row.residual_r);
+  m_pair_tree->Branch((prefix + "_residual_rphi").c_str(), &row.residual_rphi);
+  m_pair_tree->Branch((prefix + "_residual_z").c_str(), &row.residual_z);
+  m_pair_tree->Branch((prefix + "_assigned_sigma_r").c_str(), &row.assigned_sigma_r);
+  m_pair_tree->Branch((prefix + "_assigned_sigma_rphi").c_str(), &row.assigned_sigma_rphi);
+  m_pair_tree->Branch((prefix + "_assigned_sigma_z").c_str(), &row.assigned_sigma_z);
+  m_pair_tree->Branch((prefix + "_recommended_for_reference_fit").c_str(), &row.recommended_for_reference_fit);
+  m_pair_tree->Branch((prefix + "_kalman_measurement_chi2").c_str(),
+                      &row.kalman_measurement_chi2);
+  m_pair_tree->Branch((prefix + "_kalman_measurement_used").c_str(),
+                      &row.kalman_measurement_used);
 }
 
 void TpcV0CandidateTree::fill_track_row(const Tracklet &tracklet,
@@ -1867,6 +2307,18 @@ void TpcV0CandidateTree::reset_pair_row()
 {
   m_pair = {};
   const float nan = quiet_nan();
+  m_pair.primary_px1 = nan;
+  m_pair.primary_py1 = nan;
+  m_pair.primary_pz1 = nan;
+  m_pair.primary_pt1 = nan;
+  m_pair.primary_px2 = nan;
+  m_pair.primary_py2 = nan;
+  m_pair.primary_pz2 = nan;
+  m_pair.primary_pt2 = nan;
+  m_pair.primary_pair_px = nan;
+  m_pair.primary_pair_py = nan;
+  m_pair.primary_pair_pz = nan;
+  m_pair.primary_pair_pt = nan;
   m_pair.dca_xy1 = nan;
   m_pair.dca_z1 = nan;
   m_pair.dca_xy2 = nan;
@@ -1894,6 +2346,10 @@ void TpcV0CandidateTree::reset_pair_row()
   m_pair.mass_Kshort = nan;
   m_pair.mass_Lambda = nan;
   m_pair.mass_AntiLambda = nan;
+  m_pair.mass_Phi = nan;
+  m_pair.mass_D0 = nan;
+  m_pair.mass_AntiD0 = nan;
+  m_pair.candidate_mask = 0U;
   m_pair.true_decay_x = nan;
   m_pair.true_decay_y = nan;
   m_pair.true_decay_z = nan;
@@ -2026,6 +2482,18 @@ void TpcV0CandidateTree::create_branches()
   m_pair_tree->Branch("px2", &m_pair.px2, "px2/F");
   m_pair_tree->Branch("py2", &m_pair.py2, "py2/F");
   m_pair_tree->Branch("pz2", &m_pair.pz2, "pz2/F");
+  m_pair_tree->Branch("primary_px1", &m_pair.primary_px1, "primary_px1/F");
+  m_pair_tree->Branch("primary_py1", &m_pair.primary_py1, "primary_py1/F");
+  m_pair_tree->Branch("primary_pz1", &m_pair.primary_pz1, "primary_pz1/F");
+  m_pair_tree->Branch("primary_pt1", &m_pair.primary_pt1, "primary_pt1/F");
+  m_pair_tree->Branch("primary_px2", &m_pair.primary_px2, "primary_px2/F");
+  m_pair_tree->Branch("primary_py2", &m_pair.primary_py2, "primary_py2/F");
+  m_pair_tree->Branch("primary_pz2", &m_pair.primary_pz2, "primary_pz2/F");
+  m_pair_tree->Branch("primary_pt2", &m_pair.primary_pt2, "primary_pt2/F");
+  m_pair_tree->Branch("primary_pair_px", &m_pair.primary_pair_px, "primary_pair_px/F");
+  m_pair_tree->Branch("primary_pair_py", &m_pair.primary_pair_py, "primary_pair_py/F");
+  m_pair_tree->Branch("primary_pair_pz", &m_pair.primary_pair_pz, "primary_pair_pz/F");
+  m_pair_tree->Branch("primary_pair_pt", &m_pair.primary_pair_pt, "primary_pair_pt/F");
   m_pair_tree->Branch("dca_xy1", &m_pair.dca_xy1, "dca_xy1/F");
   m_pair_tree->Branch("dca_z1", &m_pair.dca_z1, "dca_z1/F");
   m_pair_tree->Branch("dca_xy2", &m_pair.dca_xy2, "dca_xy2/F");
@@ -2055,6 +2523,10 @@ void TpcV0CandidateTree::create_branches()
   m_pair_tree->Branch("mass_Kshort", &m_pair.mass_Kshort, "mass_Kshort/F");
   m_pair_tree->Branch("mass_Lambda", &m_pair.mass_Lambda, "mass_Lambda/F");
   m_pair_tree->Branch("mass_AntiLambda", &m_pair.mass_AntiLambda, "mass_AntiLambda/F");
+  m_pair_tree->Branch("mass_Phi", &m_pair.mass_Phi, "mass_Phi/F");
+  m_pair_tree->Branch("mass_D0", &m_pair.mass_D0, "mass_D0/F");
+  m_pair_tree->Branch("mass_AntiD0", &m_pair.mass_AntiD0, "mass_AntiD0/F");
+  m_pair_tree->Branch("candidate_mask", &m_pair.candidate_mask, "candidate_mask/i");
   m_pair_tree->Branch("true_decay_x", &m_pair.true_decay_x, "true_decay_x/F");
   m_pair_tree->Branch("true_decay_y", &m_pair.true_decay_y, "true_decay_y/F");
   m_pair_tree->Branch("true_decay_z", &m_pair.true_decay_z, "true_decay_z/F");
@@ -2092,6 +2564,11 @@ void TpcV0CandidateTree::create_branches()
   m_pair_tree->Branch("kalman_ndof2", &m_pair.kalman_ndof2, "kalman_ndof2/I");
   m_pair_tree->Branch("npoints1", &m_pair.npoints1, "npoints1/S");
   m_pair_tree->Branch("npoints2", &m_pair.npoints2, "npoints2/S");
+  m_pair_tree->Branch("has_kshort_daughter_details",
+                      &m_pair.has_kshort_daughter_details,
+                      "has_kshort_daughter_details/I");
+  create_daughter_detail_branches("daughter1", m_pair.daughter1);
+  create_daughter_detail_branches("daughter2", m_pair.daughter2);
 
   m_track_tree->Branch("run", &m_track.run, "run/I");
   m_track_tree->Branch("evt", &m_track.evt, "evt/I");
@@ -2837,6 +3314,107 @@ bool TpcV0CandidateTree::passes_preselection(const Tracklet &track1, const Track
   }
   if (m_pre_cos_theta_min >= -1.0 &&
       (!std::isfinite(cos_theta) || cos_theta < m_pre_cos_theta_min))
+  {
+    return false;
+  }
+
+  return true;
+}
+
+bool TpcV0CandidateTree::passes_species_selection(
+    const SpeciesCuts &cuts,
+    const Tracklet &track1, const Tracklet &track2,
+    const Vec3 &pca1, const Vec3 &pca2,
+    const Vec3 &pair_vertex, const Vec3 &primary_vertex,
+    const std::pair<double, double> &dca1,
+    const std::pair<double, double> &dca2,
+    const double pair_dca, const double cos_theta, const double alpha,
+    const double mass, const bool secondary_topology) const
+{
+  if (!cuts.enabled)
+  {
+    return false;
+  }
+
+  if (cuts.min_tpc_clusters > 0 &&
+      (static_cast<int>(track1.ntpc_clusters) < cuts.min_tpc_clusters ||
+       static_cast<int>(track2.ntpc_clusters) < cuts.min_tpc_clusters))
+  {
+    return false;
+  }
+
+  if (cuts.track_pt_min >= 0.0 &&
+      (pt(track1.momentum) < cuts.track_pt_min || pt(track2.momentum) < cuts.track_pt_min))
+  {
+    return false;
+  }
+
+  if (!std::isfinite(mass) ||
+      (cuts.mass_min >= 0.0 && mass < cuts.mass_min) ||
+      (cuts.mass_max >= 0.0 && mass > cuts.mass_max))
+  {
+    return false;
+  }
+
+  if (cuts.pair_dca_max >= 0.0 &&
+      (!std::isfinite(pair_dca) || pair_dca > cuts.pair_dca_max))
+  {
+    return false;
+  }
+
+  const double flight_length = distance(pair_vertex, primary_vertex);
+
+  if (!secondary_topology)
+  {
+    if (cuts.track_dca_xy_abs_max >= 0.0 &&
+        (std::abs(dca1.first) > cuts.track_dca_xy_abs_max ||
+         std::abs(dca2.first) > cuts.track_dca_xy_abs_max))
+    {
+      return false;
+    }
+    if (cuts.track_dca_z_abs_max >= 0.0 &&
+        (std::abs(dca1.second) > cuts.track_dca_z_abs_max ||
+         std::abs(dca2.second) > cuts.track_dca_z_abs_max))
+    {
+      return false;
+    }
+    if (cuts.flight_length_max >= 0.0 &&
+        (!std::isfinite(flight_length) || flight_length > cuts.flight_length_max))
+    {
+      return false;
+    }
+    return true;
+  }
+
+  if (cuts.pca_z_max >= 0.0 &&
+      (!std::isfinite(pair_vertex.z) || std::abs(pair_vertex.z) > cuts.pca_z_max))
+  {
+    return false;
+  }
+
+  const double pca_dz = std::abs(pca1.z - pca2.z);
+  if (cuts.pca_dz_max >= 0.0 &&
+      (!std::isfinite(pca_dz) || pca_dz > cuts.pca_dz_max))
+  {
+    return false;
+  }
+
+  const double decay_radius = std::hypot(pair_vertex.x - primary_vertex.x,
+                                         pair_vertex.y - primary_vertex.y);
+  if (cuts.decay_radius_min >= 0.0 &&
+      (!std::isfinite(decay_radius) || decay_radius < cuts.decay_radius_min))
+  {
+    return false;
+  }
+
+  if (cuts.alpha_abs_max >= 0.0 &&
+      (!std::isfinite(alpha) || std::abs(alpha) > cuts.alpha_abs_max))
+  {
+    return false;
+  }
+
+  if (cuts.dira_min >= -1.0 &&
+      (!std::isfinite(cos_theta) || cos_theta < cuts.dira_min))
   {
     return false;
   }

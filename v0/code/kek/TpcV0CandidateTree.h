@@ -177,21 +177,87 @@ class TpcV0CandidateTree : public SubsysReco
   void set_pair_dca_max(const double value) { m_pair_dca_max = value; }
   void set_pair_dira_min(const double value) { m_pair_dira_min = value; }
   void set_write_same_sign_pairs(const bool value) { m_write_same_sign_pairs = value; }
+  void set_write_cluster_residual_tree(const bool value) { m_write_cluster_residual_tree = value; }
+  void set_write_track_tree(const bool value = true) { m_write_track_tree = value; }
+  void set_write_kshort_daughter_details(const bool value = true)
+  {
+    m_write_kshort_daughter_details = value;
+  }
+  void set_kshort_detail_mass_range(const double min_mass, const double max_mass)
+  {
+    m_kshort_detail_mass_min = min_mass;
+    m_kshort_detail_mass_max = max_mass;
+  }
 
-  // false: evaluate daughter momenta at their mutual pair-PCA points.
-  // true:  evaluate daughter momenta at each track's PCA to the primary vertex.
+  // Same-sign pairs are retained only as K0S background candidates in this
+  // separate pi-pi mass interval.
+  void set_kshort_mass_range(const double min_mass, const double max_mass)
+  {
+    m_same_sign_kshort_mass_min = min_mass;
+    m_same_sign_kshort_mass_max = max_mass;
+  }
+
+  // Kept for macro compatibility. Both momentum definitions are always stored:
+  // px1...pz2/v0_* are secondary pair-PCA kinematics; primary_* are evaluated
+  // at each daughter's transverse PCA to the configured primary vertex.
   void set_use_primary_vertex_kinematics(const bool value)
   {
     m_use_primary_vertex_kinematics = value;
   }
 
-  // Applied to same-sign K0S-background entries after the common pair cuts.
-  void set_kshort_mass_range(const double min_value, const double max_value)
+  // Species-specific final selections. Negative cut values disable that cut.
+  void set_kshort_selection(bool enabled, int min_tpc_clusters, double track_pt_min,
+                            double mass_min, double mass_max, double pca_z_max,
+                            double pca_dz_max, double decay_radius_min,
+                            double alpha_abs_max, double pair_dca_max, double dira_min);
+  void set_lambda_selection(bool enabled, int min_tpc_clusters, double track_pt_min,
+                            double mass_min, double mass_max, double pca_z_max,
+                            double pca_dz_max, double decay_radius_min,
+                            double alpha_abs_max, double pair_dca_max, double dira_min);
+  void set_antilambda_selection(bool enabled, int min_tpc_clusters, double track_pt_min,
+                                double mass_min, double mass_max, double pca_z_max,
+                                double pca_dz_max, double decay_radius_min,
+                                double alpha_abs_max, double pair_dca_max, double dira_min);
+  void set_phi_selection(bool enabled, int min_tpc_clusters, double track_pt_min,
+                         double mass_min, double mass_max, double track_dca_xy_abs_max,
+                         double track_dca_z_abs_max, double pair_dca_max,
+                         double flight_length_max);
+  void set_d0_selection(bool enabled, int min_tpc_clusters, double track_pt_min,
+                        double mass_min, double mass_max, double track_dca_xy_abs_max,
+                        double track_dca_z_abs_max, double pair_dca_max,
+                        double flight_length_max);
+  void set_antid0_selection(bool enabled, int min_tpc_clusters, double track_pt_min,
+                            double mass_min, double mass_max, double track_dca_xy_abs_max,
+                            double track_dca_z_abs_max, double pair_dca_max,
+                            double flight_length_max);
+  void set_exclude_tpc_transition_layers(const bool value = true)
   {
-    m_kshort_mass_min = min_value;
-    m_kshort_mass_max = max_value;
+    m_exclude_tpc_transition_layers = value;
   }
-  void set_write_cluster_residual_tree(const bool value) { m_write_cluster_residual_tree = value; }
+  void set_tpc_region_measurement_sigmas(const double r1_rphi_cm,
+                                         const double r1_r_cm,
+                                         const double r2_rphi_cm,
+                                         const double r2_r_cm,
+                                         const double r3_rphi_cm,
+                                         const double r3_r_cm,
+                                         const double z_cm)
+  {
+    m_sigma_rphi_r1_cm = r1_rphi_cm;
+    m_sigma_r_r1_cm = r1_r_cm;
+    m_sigma_rphi_r2_cm = r2_rphi_cm;
+    m_sigma_r_r2_cm = r2_r_cm;
+    m_sigma_rphi_r3_cm = r3_rphi_cm;
+    m_sigma_r_r3_cm = r3_r_cm;
+    m_sigma_z_cm = z_cm;
+  }
+  void set_tpc_transition_measurement_sigmas(const double rphi_cm,
+                                             const double r_cm,
+                                             const double z_cm)
+  {
+    m_sigma_rphi_transition_cm = rphi_cm;
+    m_sigma_r_transition_cm = r_cm;
+    m_sigma_z_transition_cm = z_cm;
+  }
 
  private:
   using Vec3 = TpcTrackVec3;
@@ -256,6 +322,80 @@ class TpcV0CandidateTree : public SubsysReco
     double s2{0.0};
   };
 
+  struct DaughterDetailRow
+  {
+    int track_id{0};
+    int charge{0};
+    int side{-1};
+    int npoints{0};
+    unsigned int ntpc_clusters{0};
+    float dedx{0.0F};
+    float px{0.0F};
+    float py{0.0F};
+    float pz{0.0F};
+    float pt{0.0F};
+    float eta{0.0F};
+    float fit_chi2{0.0F};
+    int fit_ndf{0};
+    float fit_chi2_ndf{0.0F};
+
+    std::vector<unsigned int> cluster_index;
+    std::vector<int> cluster_side;
+    std::vector<unsigned int> layer;
+    std::vector<double> cluster_x;
+    std::vector<double> cluster_y;
+    std::vector<double> cluster_z;
+    std::vector<double> cluster_r;
+    std::vector<double> cluster_phi;
+    std::vector<double> fit_x;
+    std::vector<double> fit_y;
+    std::vector<double> fit_z;
+    std::vector<double> fit_px;
+    std::vector<double> fit_py;
+    std::vector<double> fit_pz;
+    std::vector<double> residual_r;
+    std::vector<double> residual_rphi;
+    std::vector<double> residual_z;
+    std::vector<double> assigned_sigma_r;
+    std::vector<double> assigned_sigma_rphi;
+    std::vector<double> assigned_sigma_z;
+    std::vector<unsigned char> recommended_for_reference_fit;
+    std::vector<double> kalman_measurement_chi2;
+    std::vector<unsigned char> kalman_measurement_used;
+  };
+
+  struct SpeciesCuts
+  {
+    bool enabled{false};
+    int min_tpc_clusters{0};
+    double track_pt_min{-1.0};
+    double mass_min{-1.0};
+    double mass_max{-1.0};
+
+    // Secondary-decay topology cuts.
+    double pca_z_max{-1.0};
+    double pca_dz_max{-1.0};
+    double decay_radius_min{-1.0};
+    double alpha_abs_max{-1.0};
+    double dira_min{-2.0};
+
+    // Shared/prompt topology cuts.
+    double track_dca_xy_abs_max{-1.0};
+    double track_dca_z_abs_max{-1.0};
+    double pair_dca_max{-1.0};
+    double flight_length_max{-1.0};
+  };
+
+  enum CandidateMask : unsigned int
+  {
+    CandidateKShort = 1U << 0,
+    CandidateLambda = 1U << 1,
+    CandidateAntiLambda = 1U << 2,
+    CandidatePhi = 1U << 3,
+    CandidateD0 = 1U << 4,
+    CandidateAntiD0 = 1U << 5
+  };
+
   struct PairRow
   {
     int run{0};
@@ -269,6 +409,20 @@ class TpcV0CandidateTree : public SubsysReco
     float px2{0.0F};
     float py2{0.0F};
     float pz2{0.0F};
+
+    // Daughter momenta at each track's PCA to the configured primary vertex.
+    float primary_px1{0.0F};
+    float primary_py1{0.0F};
+    float primary_pz1{0.0F};
+    float primary_pt1{0.0F};
+    float primary_px2{0.0F};
+    float primary_py2{0.0F};
+    float primary_pz2{0.0F};
+    float primary_pt2{0.0F};
+    float primary_pair_px{0.0F};
+    float primary_pair_py{0.0F};
+    float primary_pair_pz{0.0F};
+    float primary_pair_pt{0.0F};
 
     float dca_xy1{0.0F};
     float dca_z1{0.0F};
@@ -302,6 +456,10 @@ class TpcV0CandidateTree : public SubsysReco
     float mass_Kshort{0.0F};
     float mass_Lambda{0.0F};
     float mass_AntiLambda{0.0F};
+    float mass_Phi{0.0F};
+    float mass_D0{0.0F};
+    float mass_AntiD0{0.0F};
+    unsigned int candidate_mask{0};
 
     float true_decay_x{0.0F};
     float true_decay_y{0.0F};
@@ -341,6 +499,10 @@ class TpcV0CandidateTree : public SubsysReco
     int kalman_ndof2{0};
     short npoints1{0};
     short npoints2{0};
+
+    int has_kshort_daughter_details{0};
+    DaughterDetailRow daughter1;
+    DaughterDetailRow daughter2;
   };
 
   struct TrackRow
@@ -512,6 +674,13 @@ class TpcV0CandidateTree : public SubsysReco
                      const int event_number);
   void fill_track_row(const Tracklet &tracklet, const Vec3 &primary_vertex,
                       int run_number, int event_number);
+  void fill_daughter_detail_row(const Tracklet &tracklet, DaughterDetailRow &row) const;
+  void create_daughter_detail_branches(const std::string &prefix, DaughterDetailRow &row);
+  bool is_tpc_transition_layer(int layer) const;
+  void measurement_sigmas_for_layer(int layer, double &sigma_rphi_cm,
+                                    double &sigma_r_cm, double &sigma_z_cm) const;
+  void assign_point_measurement_metadata(TruthPoint &point,
+                                         std::size_t original_index) const;
   void fill_cluster_residual_rows(const Tracklet &tracklet, const Vec3 &primary_vertex,
                                   int run_number, int event_number);
   bool track_pca_to_xy(const Tracklet &tracklet, const Vec3 &beamline,
@@ -621,6 +790,14 @@ class TpcV0CandidateTree : public SubsysReco
   bool passes_pair_selection(const Vec3 &pca1, const Vec3 &pca2,
                              const Vec3 &pair_vertex, const Vec3 &primary_vertex,
                              double pair_dca, double cos_theta, double alpha) const;
+  bool passes_species_selection(const SpeciesCuts &cuts,
+                                const Tracklet &track1, const Tracklet &track2,
+                                const Vec3 &pca1, const Vec3 &pca2,
+                                const Vec3 &pair_vertex, const Vec3 &primary_vertex,
+                                const std::pair<double, double> &dca1,
+                                const std::pair<double, double> &dca2,
+                                double pair_dca, double cos_theta, double alpha,
+                                double mass, bool secondary_topology) const;
 
   std::string m_filename;
   std::string m_truth_point_node{"G4HIT_TPC_TRUECLUSTER"};
@@ -659,6 +836,32 @@ class TpcV0CandidateTree : public SubsysReco
   double m_final_track_helix_downstream_margin_cm{5.0};
   bool m_prefer_positive_pointing{false};
   bool m_write_cluster_residual_tree{false};
+  bool m_write_track_tree{false};
+  bool m_write_kshort_daughter_details{false};
+  bool m_exclude_tpc_transition_layers{true};
+
+  // TPC layer convention: R1=7..22, R2=23..38, R3=39..54.
+  // The four module-boundary layers 22, 23, 38, and 39 are marked
+  // as not recommended for the future reference fit by default.
+  double m_kshort_detail_mass_min{0.45};
+  double m_kshort_detail_mass_max{0.55};
+  double m_sigma_rphi_r1_cm{0.04};  // 400 um
+  double m_sigma_r_r1_cm{0.20};     // 2 mm
+  double m_sigma_rphi_r2_cm{0.025}; // 250 um
+  double m_sigma_r_r2_cm{0.05};     // 0.5 mm
+  double m_sigma_rphi_r3_cm{0.025}; // 250 um
+  double m_sigma_r_r3_cm{0.20};     // 2 mm
+  double m_sigma_z_cm{0.10};
+  double m_sigma_rphi_transition_cm{0.20};
+  double m_sigma_r_transition_cm{0.50};
+  double m_sigma_z_transition_cm{0.20};
+
+  SpeciesCuts m_kshort_cuts;
+  SpeciesCuts m_lambda_cuts;
+  SpeciesCuts m_antilambda_cuts;
+  SpeciesCuts m_phi_cuts;
+  SpeciesCuts m_d0_cuts;
+  SpeciesCuts m_antid0_cuts;
 
   double m_pre_track_pt_min{0.2};
   double m_pre_track_dca_xy_min{0.03};
@@ -678,8 +881,8 @@ class TpcV0CandidateTree : public SubsysReco
   double m_pair_dira_min{-2.0};
   bool m_write_same_sign_pairs{false};
   bool m_use_primary_vertex_kinematics{false};
-  double m_kshort_mass_min{0.40};
-  double m_kshort_mass_max{0.60};
+  double m_same_sign_kshort_mass_min{0.40};
+  double m_same_sign_kshort_mass_max{0.60};
   bool m_print_timing{false};
 
   std::uint64_t m_counter_raw_pairs{0};
