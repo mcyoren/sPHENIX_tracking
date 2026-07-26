@@ -221,15 +221,15 @@ class TpcV0CandidateTree : public SubsysReco
   void set_phi_selection(bool enabled, int min_tpc_clusters, double track_pt_min,
                          double mass_min, double mass_max, double track_dca_xy_abs_max,
                          double track_dca_z_abs_max, double pair_dca_max,
-                         double flight_length_max);
+                         double flight_length_max, double primary_pca_z_abs_max, double primary_pca_dz_max);
   void set_d0_selection(bool enabled, int min_tpc_clusters, double track_pt_min,
                         double mass_min, double mass_max, double track_dca_xy_abs_max,
                         double track_dca_z_abs_max, double pair_dca_max,
-                        double flight_length_max);
+                        double flight_length_max, double primary_pca_z_abs_max, double primary_pca_dz_max);
   void set_antid0_selection(bool enabled, int min_tpc_clusters, double track_pt_min,
                             double mass_min, double mass_max, double track_dca_xy_abs_max,
                             double track_dca_z_abs_max, double pair_dca_max,
-                            double flight_length_max);
+                            double flight_length_max, double primary_pca_z_abs_max, double primary_pca_dz_max);
   void set_exclude_tpc_transition_layers(const bool value = true)
   {
     m_exclude_tpc_transition_layers = value;
@@ -384,6 +384,10 @@ class TpcV0CandidateTree : public SubsysReco
     double track_dca_z_abs_max{-1.0};
     double pair_dca_max{-1.0};
     double flight_length_max{-1.0};
+
+    // Prompt-track PCA to the beam axis.
+    double primary_pca_z_abs_max{-1.0};
+    double primary_pca_dz_max{-1.0};
   };
 
   enum CandidateMask : unsigned int
@@ -685,7 +689,8 @@ class TpcV0CandidateTree : public SubsysReco
                                   int run_number, int event_number);
   bool track_pca_to_xy(const Tracklet &tracklet, const Vec3 &beamline,
                        Vec3 &pca, double &signed_dca_xy,
-                       Vec3 *momentum_at_pca = nullptr) const;
+                       Vec3 *momentum_at_pca = nullptr,
+                       double *path_at_pca_cm = nullptr) const;
   bool choose_pattern_collision_vertex(const Tracklet &tracklet,
                                        Tpc_PolyTrackVertexContainer *vertices,
                                        Vec3 &vertex, double &z_rms,
@@ -793,7 +798,11 @@ class TpcV0CandidateTree : public SubsysReco
   bool passes_species_selection(const SpeciesCuts &cuts,
                                 const Tracklet &track1, const Tracklet &track2,
                                 const Vec3 &pca1, const Vec3 &pca2,
-                                const Vec3 &pair_vertex, const Vec3 &primary_vertex,
+                                const Vec3 &pair_vertex,
+                                const Vec3 &primary_vertex,
+                                const Vec3 &primary_pca1,
+                                const Vec3 &primary_pca2,
+                                bool have_primary_pair,
                                 const std::pair<double, double> &dca1,
                                 const std::pair<double, double> &dca2,
                                 double pair_dca, double cos_theta, double alpha,

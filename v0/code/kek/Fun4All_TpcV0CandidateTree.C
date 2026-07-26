@@ -122,7 +122,7 @@ int Fun4All_TpcV0CandidateTree(
   v0->set_pre_track_dca_z_min(env_double("V0_PRE_TRACK_DCA_Z_MIN", -1.0));
   v0->set_pre_track_dca_xy_max(env_double("V0_PRE_TRACK_DCA_XY_MAX", -1.0));
   v0->set_pre_track_dca_z_max(env_double("V0_PRE_TRACK_DCA_Z_MAX", -1.0));
-  v0->set_pre_pair_dca_max(env_double("V0_PRE_PAIR_DCA_MAX", 4.0));
+  v0->set_pre_pair_dca_max(env_double("V0_PRE_PAIR_DCA_MAX", -1.0));
   v0->set_pre_lproj_min(env_double("V0_PRE_LPROJ_MIN", -1.0));
   v0->set_pre_cos_theta_min(env_double("V0_PRE_COSTHETA_MIN", -2.0));
   v0->set_pre_track_quality_max(env_double("V0_PRE_TRACK_QUALITY_MAX", -1.0));
@@ -184,7 +184,10 @@ int Fun4All_TpcV0CandidateTree(
     env_double("V0_PHI_TRACK_DCA_XY_MAX", 3.0),
     env_double("V0_PHI_TRACK_DCA_Z_MAX", -1.0),
     env_double("V0_PHI_PAIR_DCA_MAX", -1.0),
-    env_double("V0_PHI_FLIGHT_LENGTH_MAX", -1.0));
+    env_double("V0_PHI_FLIGHT_LENGTH_MAX", -1.0),
+    env_double("V0_PHI_PRIMARY_PCA_Z_MAX", 20.0),
+    env_double("V0_PHI_PRIMARY_PCA_DZ_MAX", 1.0)
+  );
 
   // Prompt D0 -> K- pi+ and anti-D0 -> K+ pi-.
   v0->set_d0_selection(
@@ -196,9 +199,12 @@ int Fun4All_TpcV0CandidateTree(
     env_double("V0_D0_TRACK_DCA_XY_MAX", 3.0),
     env_double("V0_D0_TRACK_DCA_Z_MAX", -1.0),
     env_double("V0_D0_PAIR_DCA_MAX", -1.0),
-    env_double("V0_D0_FLIGHT_LENGTH_MAX", -1.0));
+    env_double("V0_D0_FLIGHT_LENGTH_MAX", -1.0),
+    env_double("V0_D0_PRIMARY_PCA_Z_MAX", 20.0),
+    env_double("V0_D0_PRIMARY_PCA_DZ_MAX", 2.0)
+);
 
-  v0->set_d0_selection(
+  v0->set_antid0_selection(
     env_bool("V0_ENABLE_ANTID0", true),
     env_int("V0_ANTID0_MIN_TPC_CLUSTERS", 20),
     env_double("V0_ANTID0_TRACK_PT_MIN", 0.20),
@@ -207,7 +213,9 @@ int Fun4All_TpcV0CandidateTree(
     env_double("V0_ANTID0_TRACK_DCA_XY_MAX", 3.0),
     env_double("V0_ANTID0_TRACK_DCA_Z_MAX", -1.0),
     env_double("V0_ANTID0_PAIR_DCA_MAX", -1.0),
-    env_double("V0_ANTID0_FLIGHT_LENGTH_MAX", -1.0));
+    env_double("V0_ANTID0_FLIGHT_LENGTH_MAX", -1.0),
+    env_double("V0_ANTID0_PRIMARY_PCA_Z_MAX", 20.0),
+    env_double("V0_ANTID0_PRIMARY_PCA_DZ_MAX", 2.0));
 
   // Full daughter cluster payload remains K0S-only.
   v0->set_pair_pca_z_max(env_double("V0_PAIR_PCA_Z_MAX", 20.0));

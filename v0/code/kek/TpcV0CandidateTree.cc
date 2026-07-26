@@ -885,7 +885,8 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
                                          const Vec3 &beamline,
                                          Vec3 &pca,
                                          double &signed_dca_xy,
-                                         Vec3 *momentum_at_pca) const
+                                         Vec3 *momentum_at_pca,
+                                         double *path_at_pca_cm) const
 {
   const double nan = std::numeric_limits<double>::quiet_NaN();
   pca = {nan, nan, nan};
@@ -894,7 +895,11 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
   {
     *momentum_at_pca = {nan, nan, nan};
   }
-
+  if (path_at_pca_cm)
+  {
+    *path_at_pca_cm = nan;
+  }
+  
   if (tracklet.has_kalman && !tracklet.kalman.states_smoothed.empty())
   {
     const auto state = TpcTrackKalmanFitter::propagation_state(tracklet.kalman, beamline);
@@ -920,6 +925,10 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
         const double theta_closest = std::atan2(closest_y - center_y,
                                                 closest_x - center_x);
         const double path_cm = normalize_phi(theta_closest - theta0) / omega;
+        if (path_at_pca_cm)
+        {
+          *path_at_pca_cm = path_cm;
+        }
         TpcKalmanConfig config = m_kalman_config;
         config.bfield_t = tracklet.kalman.bfield_t;
         config.magnetic_field = tracklet.kalman.magnetic_field;
@@ -934,7 +943,10 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
         signed_dca_xy = center_distance - radius;
         return finite(pca) && std::isfinite(signed_dca_xy);
       }
-
+      if (path_at_pca_cm)
+      {
+        *path_at_pca_cm = 0.0;
+      }
       pca = position;
       if (momentum_at_pca)
       {
@@ -956,6 +968,11 @@ bool TpcV0CandidateTree::track_pca_to_xy(const Tracklet &tracklet,
     if (momentum_at_pca)
     {
       *momentum_at_pca = momentum;
+    }
+    if (path_at_pca_cm)
+    {
+      *path_at_pca_cm =
+          scale_to_pca * norm(momentum);
     }
     signed_dca_xy = (relative.x * momentum.y - relative.y * momentum.x) /
                     std::sqrt(transverse_momentum2);
@@ -1081,36 +1098,39 @@ void TpcV0CandidateTree::set_phi_selection(
     const bool enabled, const int min_tpc_clusters, const double track_pt_min,
     const double mass_min, const double mass_max, const double track_dca_xy_abs_max,
     const double track_dca_z_abs_max, const double pair_dca_max,
-    const double flight_length_max)
+    const double flight_length_max, double primary_pca_z_abs_max, double primary_pca_dz_max)
 {
   m_phi_cuts = {enabled, min_tpc_clusters, track_pt_min, mass_min, mass_max,
                 -1.0, -1.0, -1.0, -1.0, -2.0,
                 track_dca_xy_abs_max, track_dca_z_abs_max,
-                pair_dca_max, flight_length_max};
+                pair_dca_max, flight_length_max,
+                primary_pca_z_abs_max, primary_pca_dz_max};
 }
 
 void TpcV0CandidateTree::set_d0_selection(
     const bool enabled, const int min_tpc_clusters, const double track_pt_min,
     const double mass_min, const double mass_max, const double track_dca_xy_abs_max,
     const double track_dca_z_abs_max, const double pair_dca_max,
-    const double flight_length_max)
+    const double flight_length_max, double primary_pca_z_abs_max, double primary_pca_dz_max)
 {
   m_d0_cuts = {enabled, min_tpc_clusters, track_pt_min, mass_min, mass_max,
                -1.0, -1.0, -1.0, -1.0, -2.0,
                track_dca_xy_abs_max, track_dca_z_abs_max,
-               pair_dca_max, flight_length_max};
+               pair_dca_max, flight_length_max,
+               primary_pca_z_abs_max, primary_pca_dz_max};
 }
 
 void TpcV0CandidateTree::set_antid0_selection(
     const bool enabled, const int min_tpc_clusters, const double track_pt_min,
     const double mass_min, const double mass_max, const double track_dca_xy_abs_max,
     const double track_dca_z_abs_max, const double pair_dca_max,
-    const double flight_length_max)
+    const double flight_length_max, double primary_pca_z_abs_max, double primary_pca_dz_max)
 {
   m_antid0_cuts = {enabled, min_tpc_clusters, track_pt_min, mass_min, mass_max,
                    -1.0, -1.0, -1.0, -1.0, -2.0,
                    track_dca_xy_abs_max, track_dca_z_abs_max,
-                   pair_dca_max, flight_length_max};
+                   pair_dca_max, flight_length_max,
+                   primary_pca_z_abs_max, primary_pca_dz_max};
 }
 
 bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &track2,
@@ -1142,6 +1162,70 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
   std::pair<double, double> dca1;
   std::pair<double, double> dca2;
 
+  const double nan = quiet_nan();
+
+  // Independent track PCAs to the configured beam axis.
+  Vec3 primary_pca1{nan, nan, nan};
+  Vec3 primary_pca2{nan, nan, nan};
+
+  Vec3 primary_mom1{nan, nan, nan};
+  Vec3 primary_mom2{nan, nan, nan};
+
+  double primary_dca_xy1 = nan;
+  double primary_dca_xy2 = nan;
+
+  double primary_path1 = nan;
+  double primary_path2 = nan;
+
+  const bool have_primary1 =
+      track_pca_to_xy(
+          track1,
+          primary_vertex,
+          primary_pca1,
+          primary_dca_xy1,
+          &primary_mom1,
+          &primary_path1) &&
+      finite(primary_pca1) &&
+      finite(primary_mom1) &&
+      std::isfinite(primary_path1) &&
+      norm(primary_mom1) > 0.0;
+
+  const bool have_primary2 =
+      track_pca_to_xy(
+          track2,
+          primary_vertex,
+          primary_pca2,
+          primary_dca_xy2,
+          &primary_mom2,
+          &primary_path2) &&
+      finite(primary_pca2) &&
+      finite(primary_mom2) &&
+      std::isfinite(primary_path2) &&
+      norm(primary_mom2) > 0.0;
+
+  const bool have_primary_pair =
+      have_primary1 && have_primary2;
+
+  const Vec3 primary_total_mom =
+      have_primary_pair
+          ? add(primary_mom1, primary_mom2)
+          : Vec3{nan, nan, nan};
+
+  // Separate local two-track PCA seeded near the beam-axis PCAs.
+  KalmanPca prompt_pca;
+
+  bool have_prompt_pca = false;
+  bool have_secondary_pca = false;
+
+  Vec3 prompt_pca1{nan, nan, nan};
+  Vec3 prompt_pca2{nan, nan, nan};
+  Vec3 prompt_pair_vertex{nan, nan, nan};
+
+  Vec3 prompt_mom1{nan, nan, nan};
+  Vec3 prompt_mom2{nan, nan, nan};
+
+  double prompt_pair_dca = nan;
+
   if (m_fit_kalman_tracks && track1.has_kalman && track2.has_kalman)
   {
     const auto pca_start = std::chrono::steady_clock::now();
@@ -1152,52 +1236,254 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
     m_timing_kalman_pca_seconds += std::chrono::duration<double>(
                                        std::chrono::steady_clock::now() - pca_start)
                                        .count();
-    if (candidates.empty())
-    {
-      ++m_counter_reject_pca;
-      return false;
-    }
 
-    auto best = candidates.front();
-    if (m_prefer_positive_pointing)
+    // Build an additional local pair-PCA candidate near the point where
+    // each track independently approaches the beam axis.
+    if (have_primary_pair)
     {
-      double best_score = std::numeric_limits<double>::max();
-      for (const auto &candidate : candidates)
+      constexpr double prompt_window_cm = 5.0;
+
+      const double global_min1 =
+          -std::abs(m_kalman_max_upstream_cm);
+
+      const double global_max1 =
+          std::abs(m_kalman_downstream_margin_cm);
+
+      const double global_min2 =
+          -std::abs(m_kalman_max_upstream_cm);
+
+      const double global_max2 =
+          std::abs(m_kalman_downstream_margin_cm);
+
+      const double prompt_min1 =
+          std::max(global_min1,
+                   primary_path1 - prompt_window_cm);
+
+      const double prompt_max1 =
+          std::min(global_max1,
+                   primary_path1 + prompt_window_cm);
+
+      const double prompt_min2 =
+          std::max(global_min2,
+                   primary_path2 - prompt_window_cm);
+
+      const double prompt_max2 =
+          std::min(global_max2,
+                   primary_path2 + prompt_window_cm);
+
+      if (prompt_min1 < prompt_max1 &&
+          prompt_min2 < prompt_max2)
       {
-        const Vec3 cand_mom1 = kalman_momentum(track1.kalman, candidate.s1, m_kalman_config, primary_vertex);
-        const Vec3 cand_mom2 = kalman_momentum(track2.kalman, candidate.s2, m_kalman_config, primary_vertex);
-        const Vec3 cand_vertex = scale(add(candidate.pca1, candidate.pca2), 0.5);
-        const Vec3 flight = subtract(cand_vertex, primary_vertex);
-        const Vec3 total_mom = add(cand_mom1, cand_mom2);
-        const double cos_theta = vector_cosine(flight, total_mom);
-        const double penalty = (std::isfinite(cos_theta) && cos_theta > 0.0) ? 0.0 : 1000.0;
-        const double score = penalty + candidate.dca - 1e-3 * cos_theta;
-        if (score < best_score)
+        const double prompt_max_step =
+            std::max(
+                0.25,
+                std::max(
+                    prompt_max1 - prompt_min1,
+                    prompt_max2 - prompt_min2) /
+                    8.0);
+
+        prompt_pca = refine_kalman_pair(
+            track1.kalman,
+            track2.kalman,
+            m_kalman_config,
+            primary_vertex,
+            primary_path1,
+            primary_path2,
+            prompt_min1,
+            prompt_max1,
+            prompt_min2,
+            prompt_max2,
+            prompt_max_step,
+            30);
+
+        prompt_pca1 = prompt_pca.pca1;
+        prompt_pca2 = prompt_pca.pca2;
+        prompt_pair_dca = prompt_pca.dca;
+
+        have_prompt_pca =
+            finite(prompt_pca1) &&
+            finite(prompt_pca2) &&
+            std::isfinite(prompt_pair_dca) &&
+            std::isfinite(prompt_pca.s1) &&
+            std::isfinite(prompt_pca.s2);
+
+        if (have_prompt_pca)
         {
-          best_score = score;
-          best = candidate;
+          prompt_pair_vertex =
+              scale(add(prompt_pca1, prompt_pca2), 0.5);
+
+          prompt_mom1 = kalman_momentum(
+              track1.kalman,
+              prompt_pca.s1,
+              m_kalman_config,
+              primary_vertex);
+
+          prompt_mom2 = kalman_momentum(
+              track2.kalman,
+              prompt_pca.s2,
+              m_kalman_config,
+              primary_vertex);
+
+          have_prompt_pca =
+              finite(prompt_mom1) &&
+              finite(prompt_mom2) &&
+              norm(prompt_mom1) > 0.0 &&
+              norm(prompt_mom2) > 0.0;
         }
+
+        //if (have_prompt_pca)
+        //{
+        //  // Include the prompt-seeded candidate so a valid prompt pair can
+        //  // survive even when the ordinary coarse search missed this minimum.
+        //  candidates.push_back(prompt_pca);
+//
+        //  std::sort(
+        //      candidates.begin(),
+        //      candidates.end(),
+        //      [](const KalmanPca &lhs,
+        //         const KalmanPca &rhs)
+        //      {
+        //        return lhs.dca < rhs.dca;
+        //      });
+        //}
       }
     }
 
-    pca1 = best.pca1;
-    pca2 = best.pca2;
-    pair_dca = best.dca;
-    theta1 = best.s1;
-    theta2 = best.s2;
-    mom1 = kalman_momentum(track1.kalman, theta1, m_kalman_config, primary_vertex);
-    mom2 = kalman_momentum(track2.kalman, theta2, m_kalman_config, primary_vertex);
-    dca1 = track1.has_vertex_dca
-               ? track1.vertex_dca
-               : TpcTrackKalmanFitter::dca_to_vertex(
-                     track1.kalman, primary_vertex, &m_kalman_config);
-    dca2 = track2.has_vertex_dca
-               ? track2.vertex_dca
-               : TpcTrackKalmanFitter::dca_to_vertex(
-                     track2.kalman, primary_vertex, &m_kalman_config);
+    if (candidates.empty())
+    {
+      // The global secondary PCA failed. A valid prompt-local PCA may still
+      // allow phi/D0/anti-D0 to survive.
+      if (!have_prompt_pca)
+      {
+        ++m_counter_reject_pca;
+        return false;
+      }
+
+      // Use prompt quantities only to keep the common output-row construction
+      // finite. Secondary species will explicitly be disabled below.
+      pca1 = prompt_pca1;
+      pca2 = prompt_pca2;
+      pair_dca = prompt_pair_dca;
+
+      theta1 = prompt_pca.s1;
+      theta2 = prompt_pca.s2;
+
+      mom1 = prompt_mom1;
+      mom2 = prompt_mom2;
+
+      dca1 = track1.has_vertex_dca
+                 ? track1.vertex_dca
+                 : TpcTrackKalmanFitter::dca_to_vertex(
+                       track1.kalman,
+                       primary_vertex,
+                       &m_kalman_config);
+
+      dca2 = track2.has_vertex_dca
+                 ? track2.vertex_dca
+                 : TpcTrackKalmanFitter::dca_to_vertex(
+                       track2.kalman,
+                       primary_vertex,
+                       &m_kalman_config);
+    }
+    else
+    {
+      have_secondary_pca = true;
+
+      auto best = candidates.front();
+
+      if (m_prefer_positive_pointing)
+      {
+        double best_score =
+            std::numeric_limits<double>::max();
+
+        for (const auto &candidate : candidates)
+        {
+          const Vec3 cand_mom1 =
+              kalman_momentum(
+                  track1.kalman,
+                  candidate.s1,
+                  m_kalman_config,
+                  primary_vertex);
+
+          const Vec3 cand_mom2 =
+              kalman_momentum(
+                  track2.kalman,
+                  candidate.s2,
+                  m_kalman_config,
+                  primary_vertex);
+
+          const Vec3 cand_vertex =
+              scale(
+                  add(candidate.pca1, candidate.pca2),
+                  0.5);
+
+          const Vec3 cand_flight =
+              subtract(cand_vertex, primary_vertex);
+
+          const Vec3 cand_total_mom =
+              add(cand_mom1, cand_mom2);
+
+          const double cand_cos_theta =
+              vector_cosine(
+                  cand_flight,
+                  cand_total_mom);
+
+          const double penalty =
+              std::isfinite(cand_cos_theta) &&
+                      cand_cos_theta > 0.0
+                  ? 0.0
+                  : 1000.0;
+
+          const double score =
+              penalty +
+              candidate.dca -
+              1.0e-3 * cand_cos_theta;
+
+          if (score < best_score)
+          {
+            best_score = score;
+            best = candidate;
+          }
+        }
+      }
+
+      pca1 = best.pca1;
+      pca2 = best.pca2;
+      pair_dca = best.dca;
+
+      theta1 = best.s1;
+      theta2 = best.s2;
+
+      mom1 = kalman_momentum(
+          track1.kalman,
+          theta1,
+          m_kalman_config,
+          primary_vertex);
+
+      mom2 = kalman_momentum(
+          track2.kalman,
+          theta2,
+          m_kalman_config,
+          primary_vertex);
+
+      dca1 = track1.has_vertex_dca
+                 ? track1.vertex_dca
+                 : TpcTrackKalmanFitter::dca_to_vertex(
+                       track1.kalman,
+                       primary_vertex,
+                       &m_kalman_config);
+
+      dca2 = track2.has_vertex_dca
+                 ? track2.vertex_dca
+                 : TpcTrackKalmanFitter::dca_to_vertex(
+                       track2.kalman,
+                       primary_vertex,
+                       &m_kalman_config);
+    }
   }
   else if (m_fit_helix_tracks && track1.has_helix && track2.has_helix)
   {
+
     std::vector<HelixPca> candidates;
     if (track1.has_helix_search_range && track2.has_helix_search_range)
     {
@@ -1217,6 +1503,7 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
       ++m_counter_reject_pca;
       return false;
     }
+    have_secondary_pca = true;
 
     auto best = candidates.front();
     if (m_prefer_positive_pointing)
@@ -1258,6 +1545,7 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
       ++m_counter_reject_pca;
       return false;
     }
+    have_secondary_pca = true;
     pca1 = pca.pca1;
     pca2 = pca.pca2;
     pair_dca = pca.dca;
@@ -1272,50 +1560,71 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
   const Vec3 secondary_mom2 = mom2;
   const Vec3 secondary_total_mom = add(secondary_mom1, secondary_mom2);
 
-  // Independently evaluate each daughter at its transverse PCA to the fixed
-  // primary vertex. These are stored for prompt phi/D0 analysis.
-  const double nan = quiet_nan();
-  Vec3 primary_pca1{nan, nan, nan};
-  Vec3 primary_pca2{nan, nan, nan};
-  Vec3 primary_mom1{nan, nan, nan};
-  Vec3 primary_mom2{nan, nan, nan};
-  double primary_dca_xy1 = nan;
-  double primary_dca_xy2 = nan;
-
-  const bool have_primary1 =
-      track_pca_to_xy(track1, primary_vertex,
-                      primary_pca1, primary_dca_xy1, &primary_mom1) &&
-      finite(primary_mom1) && norm(primary_mom1) > 0.0;
-  const bool have_primary2 =
-      track_pca_to_xy(track2, primary_vertex,
-                      primary_pca2, primary_dca_xy2, &primary_mom2) &&
-      finite(primary_mom2) && norm(primary_mom2) > 0.0;
-  const bool have_primary_pair = have_primary1 && have_primary2;
-  const Vec3 primary_total_mom =
-      have_primary_pair ? add(primary_mom1, primary_mom2)
-                        : Vec3{nan, nan, nan};
+  /////// Independently evaluate each daughter at its transverse PCA to the fixed
+  /////// primary vertex. These are stored for prompt phi/D0 analysis.
+  /////const double nan = quiet_nan();
+  /////Vec3 primary_pca1{nan, nan, nan};
+  /////Vec3 primary_pca2{nan, nan, nan};
+  /////Vec3 primary_mom1{nan, nan, nan};
+  /////Vec3 primary_mom2{nan, nan, nan};
+  /////double primary_dca_xy1 = nan;
+  /////double primary_dca_xy2 = nan;
+/////
+  /////const bool have_primary1 =
+  /////    track_pca_to_xy(track1, primary_vertex,
+  /////                    primary_pca1, primary_dca_xy1, &primary_mom1) &&
+  /////    finite(primary_mom1) && norm(primary_mom1) > 0.0;
+  /////const bool have_primary2 =
+  /////    track_pca_to_xy(track2, primary_vertex,
+  /////                    primary_pca2, primary_dca_xy2, &primary_mom2) &&
+  /////    finite(primary_mom2) && norm(primary_mom2) > 0.0;
+  /////const bool have_primary_pair = have_primary1 && have_primary2;
+  /////const Vec3 primary_total_mom =
+  /////    have_primary_pair ? add(primary_mom1, primary_mom2)
+  /////                      : Vec3{nan, nan, nan};
 
   const Vec3 total_mom = secondary_total_mom;
-  const Vec3 flight = subtract(pair_vertex, primary_vertex);
-  const double cos_theta = vector_cosine(flight, total_mom);
-  if (!std::isfinite(cos_theta) || norm(flight) <= 0.0 || norm(total_mom) <= 0.0)
+  const Vec3 flight =
+      subtract(pair_vertex, primary_vertex);
+
+  double cos_theta = nan;
+
+  if (norm(flight) > 0.0 &&
+      norm(total_mom) > 0.0)
   {
-    ++m_counter_reject_pointing;
-    return false;
+    cos_theta =
+        vector_cosine(flight, total_mom);
   }
 
-  const Vec3 &pplus = (track1.charge > 0) ? secondary_mom1 : secondary_mom2;
-  const Vec3 &pminus = (track1.charge > 0) ? secondary_mom2 : secondary_mom1;
-  double alpha = 0.0;
-  double qt = 0.0;
-  if (!armenteros(pplus, pminus, alpha, qt))
+  // A failed secondary pointing calculation must not reject a valid
+  // prompt phi/D0 candidate. Secondary species will fail their DIRA cut
+  // naturally when cos_theta is NaN.
+  if (!std::isfinite(cos_theta))
   {
-    ++m_counter_reject_ap;
-    return false;
+    ++m_counter_reject_pointing;
   }
 
   const Vec3 &truth_pplus = (track1.charge > 0) ? track1.truth_momentum : track2.truth_momentum;
   const Vec3 &truth_pminus = (track1.charge > 0) ? track2.truth_momentum : track1.truth_momentum;
+  const Vec3 &pplus =
+      (track1.charge > 0)
+          ? secondary_mom1
+          : secondary_mom2;
+
+  const Vec3 &pminus =
+      (track1.charge > 0)
+          ? secondary_mom2
+          : secondary_mom1;
+
+  double alpha = nan;
+  double qt = nan;
+
+  if (!armenteros(pplus, pminus, alpha, qt))
+  {
+    alpha = nan;
+    qt = nan;
+    ++m_counter_reject_ap;
+  }
   double truth_alpha = quiet_nan();
   double truth_qt = quiet_nan();
   armenteros(truth_pplus, truth_pminus, truth_alpha, truth_qt);
@@ -1335,13 +1644,18 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
 
   const Vec3 positive_mom = (track1.charge > 0) ? secondary_mom1 : secondary_mom2;
   const Vec3 negative_mom = (track1.charge > 0) ? secondary_mom2 : secondary_mom1;
-  const Vec3 primary_positive_mom =
-      have_primary_pair
-          ? ((track1.charge > 0) ? primary_mom1 : primary_mom2)
+  const Vec3 prompt_positive_mom =
+      have_prompt_pca
+          ? ((track1.charge > 0)
+                 ? prompt_mom1
+                 : prompt_mom2)
           : Vec3{nan, nan, nan};
-  const Vec3 primary_negative_mom =
-      have_primary_pair
-          ? ((track1.charge > 0) ? primary_mom2 : primary_mom1)
+
+  const Vec3 prompt_negative_mom =
+      have_prompt_pca
+          ? ((track1.charge > 0)
+                 ? prompt_mom2
+                 : prompt_mom1)
           : Vec3{nan, nan, nan};
 
   reset_pair_row();
@@ -1416,37 +1730,102 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
       invariant_mass(positive_mom, kPionMass,
                      negative_mom, kProtonMass));
 
-  if (have_primary_pair)
+  if (have_prompt_pca)
   {
     m_pair.mass_Phi = static_cast<float>(
-        invariant_mass(primary_mom1, kKaonMass,
-                       primary_mom2, kKaonMass));
+        invariant_mass(
+            prompt_mom1,
+            kKaonMass,
+            prompt_mom2,
+            kKaonMass));
+
     m_pair.mass_D0 = static_cast<float>(
-        invariant_mass(primary_negative_mom, kKaonMass,
-                       primary_positive_mom, kPionMass));
+        invariant_mass(
+            prompt_negative_mom,
+            kKaonMass,
+            prompt_positive_mom,
+            kPionMass));
+
     m_pair.mass_AntiD0 = static_cast<float>(
-        invariant_mass(primary_positive_mom, kKaonMass,
-                       primary_negative_mom, kPionMass));
+        invariant_mass(
+            prompt_positive_mom,
+            kKaonMass,
+            prompt_negative_mom,
+            kPionMass));
   }
 
-  const bool pass_kshort = passes_species_selection(
+  const bool pass_kshort = have_secondary_pca && passes_species_selection(
       m_kshort_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
+      primary_pca1, primary_pca2, have_primary_pair,
       dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_Kshort, true);
-  const bool pass_lambda = passes_species_selection(
+  const bool pass_lambda = have_secondary_pca && passes_species_selection(
       m_lambda_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
+      primary_pca1, primary_pca2, have_primary_pair,
       dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_Lambda, true);
-  const bool pass_antilambda = passes_species_selection(
+  const bool pass_antilambda = have_secondary_pca && passes_species_selection(
       m_antilambda_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
+      primary_pca1, primary_pca2, have_primary_pair,
       dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_AntiLambda, true);
-  const bool pass_phi = passes_species_selection(
-      m_phi_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
-      dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_Phi, false);
-  const bool pass_d0 = passes_species_selection(
-      m_d0_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
-      dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_D0, false);
-  const bool pass_antid0 = passes_species_selection(
-      m_antid0_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
-      dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_AntiD0, false);
+  const bool pass_phi =
+      have_prompt_pca &&
+      passes_species_selection(
+          m_phi_cuts,
+          track1,
+          track2,
+          prompt_pca1,
+          prompt_pca2,
+          prompt_pair_vertex,
+          primary_vertex,
+          primary_pca1,
+          primary_pca2,
+          have_primary_pair,
+          dca1,
+          dca2,
+          prompt_pair_dca,
+          nan,
+          nan,
+          m_pair.mass_Phi,
+          false);
+  const bool pass_d0 =
+      have_prompt_pca &&
+      passes_species_selection(
+          m_d0_cuts,
+          track1,
+          track2,
+          prompt_pca1,
+          prompt_pca2,
+          prompt_pair_vertex,
+          primary_vertex,
+          primary_pca1,
+          primary_pca2,
+          have_primary_pair,
+          dca1,
+          dca2,
+          prompt_pair_dca,
+          nan,
+          nan,
+          m_pair.mass_D0,
+          false);
+  const bool pass_antid0 =
+      have_prompt_pca &&
+      passes_species_selection(
+          m_antid0_cuts,
+          track1,
+          track2,
+          prompt_pca1,
+          prompt_pca2,
+          prompt_pair_vertex,
+          primary_vertex,
+          primary_pca1,
+          primary_pca2,
+          have_primary_pair,
+          dca1,
+          dca2,
+          prompt_pair_dca,
+          nan,
+          nan,
+          m_pair.mass_AntiD0,
+          false);
 
   const bool same_sign = track1.charge == track2.charge;
   if (same_sign)
@@ -3326,6 +3705,9 @@ bool TpcV0CandidateTree::passes_species_selection(
     const Tracklet &track1, const Tracklet &track2,
     const Vec3 &pca1, const Vec3 &pca2,
     const Vec3 &pair_vertex, const Vec3 &primary_vertex,
+    const Vec3 &primary_pca1,
+    const Vec3 &primary_pca2,
+    bool have_primary_pair,
     const std::pair<double, double> &dca1,
     const std::pair<double, double> &dca2,
     const double pair_dca, const double cos_theta, const double alpha,
@@ -3363,6 +3745,10 @@ bool TpcV0CandidateTree::passes_species_selection(
   }
 
   const double flight_length = distance(pair_vertex, primary_vertex);
+  if (false) std::cout << "[V0CandidateTree] flight_length=" << flight_length
+            << " pair_vertex=" << pair_vertex.x << "," << pair_vertex.y << "," << pair_vertex.z
+            << " primary_vertex=" << primary_vertex.x << "," << primary_vertex.y << "," << primary_vertex.z
+            << std::endl;
 
   if (!secondary_topology)
   {
@@ -3372,20 +3758,53 @@ bool TpcV0CandidateTree::passes_species_selection(
     {
       return false;
     }
+
+    // Avoid this while primary_vertex.z is fixed to zero.
     if (cuts.track_dca_z_abs_max >= 0.0 &&
         (std::abs(dca1.second) > cuts.track_dca_z_abs_max ||
          std::abs(dca2.second) > cuts.track_dca_z_abs_max))
     {
       return false;
     }
-    if (cuts.flight_length_max >= 0.0 &&
-        (!std::isfinite(flight_length) || flight_length > cuts.flight_length_max))
+
+    const bool require_primary_pca =
+        cuts.primary_pca_z_abs_max >= 0.0 ||
+        cuts.primary_pca_dz_max >= 0.0;
+
+    if (require_primary_pca && !have_primary_pair)
     {
       return false;
     }
+
+    if (cuts.primary_pca_z_abs_max >= 0.0)
+    {
+      const double dz1 =
+          std::abs(primary_pca1.z - primary_vertex.z);
+
+      const double dz2 =
+          std::abs(primary_pca2.z - primary_vertex.z);
+
+      if (!std::isfinite(dz1) ||
+          !std::isfinite(dz2) ||
+          dz1 > cuts.primary_pca_z_abs_max ||
+          dz2 > cuts.primary_pca_z_abs_max)
+      {
+        return false;
+      }
+    }
+
+    const double primary_pca_dz =
+        std::abs(primary_pca1.z - primary_pca2.z);
+
+    if (cuts.primary_pca_dz_max >= 0.0 &&
+        (!std::isfinite(primary_pca_dz) ||
+         primary_pca_dz > cuts.primary_pca_dz_max))
+    {
+      return false;
+    }
+
     return true;
   }
-
   if (cuts.pca_z_max >= 0.0 &&
       (!std::isfinite(pair_vertex.z) || std::abs(pair_vertex.z) > cuts.pca_z_max))
   {
