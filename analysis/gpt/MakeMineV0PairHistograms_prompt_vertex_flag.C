@@ -38,7 +38,6 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -82,17 +81,17 @@ namespace
     std::string description;
 
     double minDaughterPt;
-    unsigned int minNtpcClusters;
-    double maxQuality;
+    int minNpoints;
     double maxAbsTrackDcaXY;
     double maxAbsTrackDcaZ;
-    double maxAbsPrimaryPcaZ;
-    double maxAbsDeltaPrimaryPcaZ;
-    double maxAbsPromptPairDCA;
+    double maxAbsPairDCA;
+    double maxAbsLproj;
+    double maxQuality;
 
-    // Negative bounds disable the corresponding dE/dx side.
+    // Defaults: pion dE/dx < 400; no kaon cut.
+    // Negative bound disables that side of the dE/dx selection.
     double pionDedxMin{-1.0};
-    double pionDedxMax{-1.0};
+    double pionDedxMax{400.0};
     double kaonDedxMin{-1.0};
     double kaonDedxMax{-1.0};
   };
@@ -114,11 +113,6 @@ namespace
     TH2F* h_antid0_mass_vs_v0pt = nullptr;
     TH2F* h_armenteros_podolanski = nullptr;
     TH2F* h_pair_dca_vs_delta_pca_z = nullptr;
-
-    // Prompt-primary QA. Filled only in the promptMesons directories.
-    TH1F* h_primary_pca_dz = nullptr;
-    TH2F* h_primary_pca_z1_vs_z2 = nullptr;
-    TH2F* h_max_dca_xy_vs_primary_pca_dz = nullptr;
 
     // Compact 3D histograms.
     TH3F* h3_k0s = nullptr;
@@ -327,26 +321,6 @@ namespace
       240, 0.0, 2.4,
       240, 0.0, 2.4);
 
-    h.h_primary_pca_dz = new TH1F(
-      "h_primary_pca_dz",
-      "Primary beam-axis PCA z difference" + tag +
-        ";|z_{PCA,1}^{primary}-z_{PCA,2}^{primary}| [cm];pairs",
-      240, 0.0, 2.4);
-
-    h.h_primary_pca_z1_vs_z2 = new TH2F(
-      "h_primary_pca_z1_vs_z2",
-      "Primary beam-axis PCA z correlation" + tag +
-        ";z_{PCA,1}^{primary} [cm];z_{PCA,2}^{primary} [cm]",
-      160, -40.0, 40.0,
-      160, -40.0, 40.0);
-
-    h.h_max_dca_xy_vs_primary_pca_dz = new TH2F(
-      "h_max_dca_xy_vs_primary_pca_dz",
-      "Track DCA_{xy} vs primary PCA z difference" + tag +
-        ";|z_{PCA,1}^{primary}-z_{PCA,2}^{primary}| [cm];max |DCA_{xy}| [cm]",
-      240, 0.0, 2.4,
-      200, 0.0, 5.0);
-
     // Compact 3D binning to control output size:
     //   30 bins in V0 pT, 80 bins in mass, 20 bins in |pairDCA|.
     h.h3_k0s = new TH3F(
@@ -444,30 +418,21 @@ namespace
 
   bool passesPromptSelection(const PromptSelection& selection,
                              const double daughterPtMin,
-                             const unsigned int ntpcClustersMin,
-                             const double qualityMax,
+                             const int npointsMin,
                              const double maxAbsTrackDcaXY,
                              const double maxAbsTrackDcaZ,
-                             const double maxAbsPrimaryPcaZ,
-                             const double absDeltaPrimaryPcaZ,
-                             const double absPromptPairDCA)
+                             const double absPairDCA,
+                             const double absLproj,
+                             const double qualityMax)
   {
     return
       daughterPtMin > selection.minDaughterPt &&
-      ntpcClustersMin >= selection.minNtpcClusters &&
-      (selection.maxQuality < 0.0 ||
-       qualityMax < selection.maxQuality) &&
-      (selection.maxAbsTrackDcaXY < 0.0 ||
-       maxAbsTrackDcaXY < selection.maxAbsTrackDcaXY) &&
-      (selection.maxAbsTrackDcaZ < 0.0 ||
-       maxAbsTrackDcaZ < selection.maxAbsTrackDcaZ) &&
-      (selection.maxAbsPrimaryPcaZ < 0.0 ||
-       maxAbsPrimaryPcaZ < selection.maxAbsPrimaryPcaZ) &&
-      (selection.maxAbsDeltaPrimaryPcaZ < 0.0 ||
-       absDeltaPrimaryPcaZ < selection.maxAbsDeltaPrimaryPcaZ) &&
-      (selection.maxAbsPromptPairDCA < 0.0 ||
-       (std::isfinite(absPromptPairDCA) &&
-        absPromptPairDCA < selection.maxAbsPromptPairDCA));
+      npointsMin >= selection.minNpoints &&
+      maxAbsTrackDcaXY < selection.maxAbsTrackDcaXY &&
+      maxAbsTrackDcaZ < selection.maxAbsTrackDcaZ &&
+      absPairDCA < selection.maxAbsPairDCA &&
+      absLproj < selection.maxAbsLproj &&
+      qualityMax < selection.maxQuality;
   }
 }
 
@@ -480,24 +445,9 @@ void MakeK0sPairHistograms(
   const bool requireProtonHigherPt = true,
   const bool ScaleQualityBy10 = false,
   const Long64_t maxEntries = -1,
-  const bool usePrimaryVertexKinematicsForPrompt = true,
-  const double beamX = 0.158,
-  const double beamY = 0.285,
-  const double beamZ = 0.0)
+  const bool usePrimaryVertexKinematicsForPrompt = true)
 {
   TH1::AddDirectory(kTRUE);
-
-  std::cout << "MakeK0sPairHistograms: inputDir=" << inputDir
-            << ", filePattern=" << filePattern
-            << ", outputDir=" << outputDir
-            << ", outputName=" << outputName
-            << ", treeName=" << treeName
-            << ", requireProtonHigherPt=" << requireProtonHigherPt
-            << ", ScaleQualityBy10=" << ScaleQualityBy10
-            << ", maxEntries=" << maxEntries
-            << ", usePrimaryVertexKinematicsForPrompt="
-            << usePrimaryVertexKinematicsForPrompt
-            << std::endl;
 
   const TString chainPattern =
     TString::Format("%s/%s", inputDir, filePattern);
@@ -569,15 +519,7 @@ void MakeK0sPairHistograms(
       "primary_pz1",
       "primary_px2",
       "primary_py2",
-      "primary_pz2",
-      "primary_pca1_z",
-      "primary_pca2_z",
-      "primary_pca_dz",
-      "primary_pca_valid",
-      "prompt_pairDCA",
-      "prompt_pca_valid",
-      "ntpc_clusters1",
-      "ntpc_clusters2"
+      "primary_pz2"
     };
 
     for (const auto& name : requiredPrimaryBranches)
@@ -621,12 +563,6 @@ void MakeK0sPairHistograms(
   Float_t primary_px2 = 0.f;
   Float_t primary_py2 = 0.f;
   Float_t primary_pz2 = 0.f;
-  Float_t primary_pca1_z = 0.f;
-  Float_t primary_pca2_z = 0.f;
-  Float_t primary_pca_dz = 0.f;
-  Int_t primary_pca_valid = 0;
-  Float_t prompt_pairDCA = 0.f;
-  Int_t prompt_pca_valid = 0;
 
   Float_t v0_px = 0.f;
   Float_t v0_py = 0.f;
@@ -649,8 +585,6 @@ void MakeK0sPairHistograms(
   Float_t charge2 = 0;
   Short_t npoints1 = 0;
   Short_t npoints2 = 0;
-  UInt_t ntpc_clusters1 = 0;
-  UInt_t ntpc_clusters2 = 0;
 
 
   chain.SetBranchAddress("mass_Kshort", &mass_Kshort);
@@ -679,14 +613,6 @@ void MakeK0sPairHistograms(
     chain.SetBranchAddress("primary_px2", &primary_px2);
     chain.SetBranchAddress("primary_py2", &primary_py2);
     chain.SetBranchAddress("primary_pz2", &primary_pz2);
-    chain.SetBranchAddress("primary_pca1_z", &primary_pca1_z);
-    chain.SetBranchAddress("primary_pca2_z", &primary_pca2_z);
-    chain.SetBranchAddress("primary_pca_dz", &primary_pca_dz);
-    chain.SetBranchAddress("primary_pca_valid", &primary_pca_valid);
-    chain.SetBranchAddress("prompt_pairDCA", &prompt_pairDCA);
-    chain.SetBranchAddress("prompt_pca_valid", &prompt_pca_valid);
-    chain.SetBranchAddress("ntpc_clusters1", &ntpc_clusters1);
-    chain.SetBranchAddress("ntpc_clusters2", &ntpc_clusters2);
   }
 
   chain.SetBranchAddress("v0_px", &v0_px);
@@ -744,27 +670,27 @@ void MakeK0sPairHistograms(
     },
     {
       "cut04_pairDCA_15mm",
-      "|z|<12, pt>0.20, dz<0.50, pairDCA<1.5",
+      "|z|<12, pt>0.30, dz<0.50, pairDCA<1.5",
       12.0, 0.50, 0.20, 2.0, 0.99, 1.50, 0.88, 15.0, 30
     },
     {
       "cut05_pairDCA_10mm",
-      "|z|<10, pt>0.20, dz<0.40, pairDCA<1.0",
+      "|z|<10, pt>0.30, dz<0.30, pairDCA<1.0",
       10.0, 0.40, 0.20, 2.0, 0.99, 1.00, 0.90, 13.0, 30
     },
     {
       "cut06_pairDCA_7mm",
-      "|z|<10, pt>0.20, dz<0.25, pairDCA<0.7",
+      "|z|<10, pt>0.3, dz<0.25, pairDCA<0.7",
       10.0, 0.25, 0.20, 2.0, 0.99, 0.70, 0.93, 12.0, 32
     },
     {
       "cut07_pairDCA_5mm",
-      "|z|<10, pt>0.200, dz<0.20, pairDCA<0.5",
+      "|z|<10, pt>0.30, dz<0.20, pairDCA<0.5",
       10.0, 0.20, 0.20, 2.0, 0.99, 0.50, 0.95, 10.0, 32
     },
     {
       "cut08_pairDCA_3mm",
-      "|z|<8, pt>0.20, dz<0.15, pairDCA<0.3",
+      "|z|<8, pt>0.30, dz<0.15, pairDCA<0.3",
       8.00, 0.15, 0.20, 2.0, 0.99, 0.30, 0.98, 8.0, 35
     },
     {
@@ -794,7 +720,7 @@ void MakeK0sPairHistograms(
   TNamed promptKinematicsInfo(
     "prompt_kinematics",
     usePrimaryVertexKinematicsForPrompt
-      ? "daughter momenta at independent transverse PCAs to the configured beam axis"
+      ? "primary-vertex daughter momenta"
       : "secondary pair-PCA daughter momenta");
   promptKinematicsInfo.Write();
 
@@ -907,45 +833,35 @@ void MakeK0sPairHistograms(
   // These candidates are treated as primary within the present DCA resolution.
   const std::vector<PromptSelection> promptSelections = {
     {
-      "primary_dz_2p0",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
-      "|primary PCA z|<20, |Delta primary PCA z|<2.0; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 2.0, -1.0
+      "prompt_loose_0p6",
+      "pT>0.20, npoints>30, |DCAxy|<1.5, |DCAz|<3.0, pairDCA<1.5, |Lproj|<1.5, quality<20, pion dE/dx<400",
+      0.20, 30, 3.0, 0.6, 3.0, 11.50, 20.0
     },
     {
-      "primary_dz_1p0",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
-      "|primary PCA z|<20, |Delta primary PCA z|<1.0; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 1.0, -1.0
+      "prompt_loose_0p4",
+      "pT>0.20, npoints>30, |DCAxy|<1.5, |DCAz|<3.0, pairDCA<1.5, |Lproj|<1.5, quality<20, pion dE/dx<400",
+      0.20, 30, 3.0, 0.4, 3.0, 11.50, 20.0
     },
     {
-      "primary_dz_0p5",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
-      "|primary PCA z|<20, |Delta primary PCA z|<0.5; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 0.5, -1.0
+      "prompt_loose_0p2",
+      "pT>0.20, npoints>30, |DCAxy|<1.5, |DCAz|<3.0, pairDCA<1.5, |Lproj|<1.5, quality<20, pion dE/dx<400",
+      0.20, 30, 3.0, 0.2, 3.0, 11.50, 20.0
     },
     {
-      "primary_dz_0p2",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
-      "|primary PCA z|<20, |Delta primary PCA z|<0.2; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 0.2, -1.0
-    },
-    {
-      "primary_dz_0p5_track",
-      "primary momenta, pT>0.30, nTPC>=30, quality<15, |DCAxy|<1, "
-      "|primary PCA z|<20, |Delta primary PCA z|<0.5",
-      0.30, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0
-    },
-    {
-      "primary_dz_0p5_dcaz2",
-      "same as primary_dz_0p5_track plus |DCAz to fixed z=0|<2; diagnostic only",
-      0.30, 30, 15.0, 1.0, 2.0, 20.0, 0.5, -1.0
-    },
-    {
-      "primary_dz_0p5_pid",
-      "same as primary_dz_0p5_track plus pion dE/dx<300 and kaon dE/dx>300",
-      0.30, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0,
+      "prompt_loose_0p2_pid",
+      "pT>0.20, npoints>30, |DCAxy|<1.5, |DCAz|<3.0, pairDCA<1.5, |Lproj|<1.5, quality<20, pion dE/dx<300, kaon dE/dx>300",
+      0.20, 30, 3.0, 0.20, 3.0, 11.50, 20.0,
       -1.0, 300.0, 300.0, -1.0
+    },
+    {
+      "prompt_baseline",
+      "pT>0.30, npoints>30, |DCAxy|<1.0, |DCAz|<2.0, pairDCA<1.0, |Lproj|<1.0, quality<15, pion dE/dx<400",
+      0.30, 30, 3.00, 0.2, 3.00, 11.00, 20.0
+    },
+    {
+      "prompt_tight",
+      "pT>0.40, npoints>35, |DCAxy|<0.5, |DCAz|<1.0, pairDCA<0.5, |Lproj|<0.5, quality<10, pion dE/dx<400",
+      0.40, 35, 3.0, 0.2, 2.50, 10.50, 20.0
     }
   };
 
@@ -1001,8 +917,11 @@ void MakeK0sPairHistograms(
   {
     chain.GetEntry(entry);
 
-    const double qualityScale =
-      ScaleQualityBy10 ? 10.0 : 1.0;
+    //if (ScaleQualityBy10)
+    //{
+    //  quality1 *= 10.0;
+    //  quality2 *= 10.0;
+    //}
 
     if (entry % 100000 == 0)
     {
@@ -1051,9 +970,6 @@ void MakeK0sPairHistograms(
       usePrimaryVertexKinematicsForPrompt ? primary_pz2 : pz2;
 
     const bool promptKinematicsFinite =
-      primary_pca_valid != 0 &&
-      std::isfinite(primary_pca1_z) &&
-      std::isfinite(primary_pca2_z) &&
       std::isfinite(promptPx1) &&
       std::isfinite(promptPy1) &&
       std::isfinite(promptPz1) &&
@@ -1109,14 +1025,8 @@ void MakeK0sPairHistograms(
     const double absDeltaPcaZ =
       std::abs(pca1_z - pca2_z);
 
-    // Secondary V0 flight is measured from the configured beam position,
-    // not from the detector origin.
-    const double flightX = pca_x - beamX;
-    const double flightY = pca_y - beamY;
-    const double flightZ = pca_z - beamZ;
-
     const double decayRadius =
-      std::hypot(flightX, flightY);
+      std::hypot(pca_x, pca_y);
 
     const double absAlpha =
       std::abs(alpha);
@@ -1124,34 +1034,17 @@ void MakeK0sPairHistograms(
     const double absPairDCA =
       std::abs(pairDCA);
 
+    const double absLproj = std::abs(Lproj);
     const double maxAbsTrackDcaXY =
       std::max(std::abs(dca_xy1), std::abs(dca_xy2));
     const double maxAbsTrackDcaZ =
       std::max(std::abs(dca_z1), std::abs(dca_z2));
 
     const double qualityMax =
-      qualityScale * std::max(quality1, quality2);
+      std::max(quality1, quality2);
 
     const int npointsMin =
       std::min<int>(npoints1, npoints2);
-
-    const unsigned int ntpcClustersMin =
-      std::min(ntpc_clusters1, ntpc_clusters2);
-
-    const double maxAbsPrimaryPcaZ =
-      std::max(
-        std::abs(primary_pca1_z - beamZ),
-        std::abs(primary_pca2_z - beamZ));
-
-    const double absDeltaPrimaryPcaZ =
-      std::isfinite(primary_pca_dz)
-        ? std::abs(primary_pca_dz)
-        : std::abs(primary_pca1_z - primary_pca2_z);
-
-    const double absPromptPairDCA =
-      (prompt_pca_valid != 0 && std::isfinite(prompt_pairDCA))
-        ? std::abs(prompt_pairDCA)
-        : std::numeric_limits<double>::quiet_NaN();
 
     const double v0Momentum =
       std::sqrt(
@@ -1161,15 +1054,15 @@ void MakeK0sPairHistograms(
 
     const double flightLength =
       std::sqrt(
-        flightX * flightX +
-        flightY * flightY +
-        flightZ * flightZ);
+        pca_x * pca_x +
+        pca_y * pca_y +
+        pca_z * pca_z);
 
     const double dira =
       (v0Momentum > 0. && flightLength > 0.)
-        ? (v0_px * flightX +
-           v0_py * flightY +
-           v0_pz * flightZ) /
+        ? (v0_px * pca_x +
+           v0_py * pca_y +
+           v0_pz * pca_z) /
           (v0Momentum * flightLength)
         : -2.;
 
@@ -1368,9 +1261,9 @@ void MakeK0sPairHistograms(
     }
 
     // Prompt phi and D0/anti-D0 QA.
-    // Physical prompt candidates are unlike-sign. The present reconstruction
-    // retains same-sign rows only through the K0S background path, so those
-    // rows are not an unbiased prompt like-sign sample and are not filled here.
+    // Phi is filled for unlike- and like-sign pairs.
+    // D0 and anti-D0 are filled only for unlike-sign pairs because the
+    // K/pi mass assignment is charge-specific.
     for (const auto& promptSelection : promptSelections)
     {
       const bool phiDedxPass =
@@ -1403,24 +1296,18 @@ void MakeK0sPairHistograms(
           !passesPromptSelection(
             promptSelection,
             promptDaughterPtMin,
-            ntpcClustersMin,
-            qualityMax,
+            npointsMin,
             maxAbsTrackDcaXY,
             maxAbsTrackDcaZ,
-            maxAbsPrimaryPcaZ,
-            absDeltaPrimaryPcaZ,
-            absPromptPairDCA))
+            absPairDCA,
+            absLproj,
+            qualityMax))
       {
         continue;
       }
 
       for (const auto category : categories)
       {
-        if (category != ChargeCategory::Unlike)
-        {
-          continue;
-        }
-
         HistSet& h =
           promptHistograms
             .at(promptSelection.name)
@@ -1431,25 +1318,12 @@ void MakeK0sPairHistograms(
           h.h_phi_mass->Fill(promptMassPhi);
           h.h_phi_mass_vs_v0pt->Fill(
             promptPairPt, promptMassPhi);
-
-          if (std::isfinite(absPromptPairDCA))
-          {
-            h.h3_phi->Fill(
-              promptPairPt, promptMassPhi, absPromptPairDCA);
-          }
+          h.h3_phi->Fill(
+            promptPairPt, promptMassPhi, absPairDCA);
         }
 
-        h.h_primary_pca_dz->Fill(absDeltaPrimaryPcaZ);
-        h.h_primary_pca_z1_vs_z2->Fill(
-          primary_pca1_z, primary_pca2_z);
-        h.h_max_dca_xy_vs_primary_pca_dz->Fill(
-          absDeltaPrimaryPcaZ, maxAbsTrackDcaXY);
-
-        if (std::isfinite(absPromptPairDCA))
-        {
-          h.h_pair_dca_vs_delta_pca_z->Fill(
-            absDeltaPrimaryPcaZ, absPromptPairDCA);
-        }
+        h.h_pair_dca_vs_delta_pca_z->Fill(
+          absDeltaPcaZ, absPairDCA);
 
         if (category == ChargeCategory::Unlike)
         {
@@ -1458,11 +1332,8 @@ void MakeK0sPairHistograms(
             h.h_d0_mass->Fill(promptMassD0);
             h.h_d0_mass_vs_v0pt->Fill(
               promptPairPt, promptMassD0);
-            if (std::isfinite(absPromptPairDCA))
-            {
-              h.h3_d0->Fill(
-                promptPairPt, promptMassD0, absPromptPairDCA);
-            }
+            h.h3_d0->Fill(
+              promptPairPt, promptMassD0, absPairDCA);
           }
 
           if (antiD0DedxPass)
@@ -1470,11 +1341,8 @@ void MakeK0sPairHistograms(
             h.h_antid0_mass->Fill(promptMassAntiD0);
             h.h_antid0_mass_vs_v0pt->Fill(
               promptPairPt, promptMassAntiD0);
-            if (std::isfinite(absPromptPairDCA))
-            {
-              h.h3_antid0->Fill(
-                promptPairPt, promptMassAntiD0, absPromptPairDCA);
-            }
+            h.h3_antid0->Fill(
+              promptPairPt, promptMassAntiD0, absPairDCA);
           }
         }
       }

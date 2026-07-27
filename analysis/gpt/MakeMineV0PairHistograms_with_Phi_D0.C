@@ -38,7 +38,6 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -68,12 +67,6 @@ namespace
     double minDIRA;
     double maxQuality;
     int minnpoints;
-
-    // Negative bound disables that side of the dE/dx selection.
-    double pionDedxMin{-1.0};
-    double pionDedxMax{400.0};
-    double protonDedxMin{-1.0};
-    double protonDedxMax{-1.0};
   };
 
   struct PromptSelection
@@ -82,19 +75,12 @@ namespace
     std::string description;
 
     double minDaughterPt;
-    unsigned int minNtpcClusters;
-    double maxQuality;
+    int minNpoints;
     double maxAbsTrackDcaXY;
     double maxAbsTrackDcaZ;
-    double maxAbsPrimaryPcaZ;
-    double maxAbsDeltaPrimaryPcaZ;
-    double maxAbsPromptPairDCA;
-
-    // Negative bounds disable the corresponding dE/dx side.
-    double pionDedxMin{-1.0};
-    double pionDedxMax{-1.0};
-    double kaonDedxMin{-1.0};
-    double kaonDedxMax{-1.0};
+    double maxAbsPairDCA;
+    double maxAbsLproj;
+    double maxQuality;
   };
 
   struct HistSet
@@ -115,11 +101,6 @@ namespace
     TH2F* h_armenteros_podolanski = nullptr;
     TH2F* h_pair_dca_vs_delta_pca_z = nullptr;
 
-    // Prompt-primary QA. Filled only in the promptMesons directories.
-    TH1F* h_primary_pca_dz = nullptr;
-    TH2F* h_primary_pca_z1_vs_z2 = nullptr;
-    TH2F* h_max_dca_xy_vs_primary_pca_dz = nullptr;
-
     // Compact 3D histograms.
     TH3F* h3_k0s = nullptr;
     TH3F* h3_lambda = nullptr;
@@ -133,37 +114,6 @@ namespace
     TH3F* h3_k0s_ptplus_vs_ptminus_vs_mass = nullptr;
   };
   constexpr double kTwoPi = 2.0 * TMath::Pi();
-  constexpr double kPionMass = 0.13957039;
-  constexpr double kKaonMass = 0.493677;
-
-  double invariantMass(const double px1,
-                       const double py1,
-                       const double pz1,
-                       const double mass1,
-                       const double px2,
-                       const double py2,
-                       const double pz2,
-                       const double mass2)
-  {
-    const double p1Squared = px1 * px1 + py1 * py1 + pz1 * pz1;
-    const double p2Squared = px2 * px2 + py2 * py2 + pz2 * pz2;
-
-    const double energy1 = std::sqrt(p1Squared + mass1 * mass1);
-    const double energy2 = std::sqrt(p2Squared + mass2 * mass2);
-
-    const double totalPx = px1 + px2;
-    const double totalPy = py1 + py2;
-    const double totalPz = pz1 + pz2;
-    const double totalEnergy = energy1 + energy2;
-
-    const double massSquared =
-      totalEnergy * totalEnergy -
-      totalPx * totalPx -
-      totalPy * totalPy -
-      totalPz * totalPz;
-
-    return std::sqrt(std::max(0.0, massSquared));
-  }
 
   double wrapPhi(double phi)
   {
@@ -175,15 +125,6 @@ namespace
   bool branchExists(TChain& chain, const char* name)
   {
     return chain.GetBranch(name) != nullptr;
-  }
-
-  bool passesDedx(const double value,
-                  const double minValue,
-                  const double maxValue)
-  {
-    return
-      (minValue < 0.0 || value > minValue) &&
-      (maxValue < 0.0 || value < maxValue);
   }
 
   std::string chargeName(const ChargeCategory category)
@@ -327,26 +268,6 @@ namespace
       240, 0.0, 2.4,
       240, 0.0, 2.4);
 
-    h.h_primary_pca_dz = new TH1F(
-      "h_primary_pca_dz",
-      "Primary beam-axis PCA z difference" + tag +
-        ";|z_{PCA,1}^{primary}-z_{PCA,2}^{primary}| [cm];pairs",
-      240, 0.0, 2.4);
-
-    h.h_primary_pca_z1_vs_z2 = new TH2F(
-      "h_primary_pca_z1_vs_z2",
-      "Primary beam-axis PCA z correlation" + tag +
-        ";z_{PCA,1}^{primary} [cm];z_{PCA,2}^{primary} [cm]",
-      160, -40.0, 40.0,
-      160, -40.0, 40.0);
-
-    h.h_max_dca_xy_vs_primary_pca_dz = new TH2F(
-      "h_max_dca_xy_vs_primary_pca_dz",
-      "Track DCA_{xy} vs primary PCA z difference" + tag +
-        ";|z_{PCA,1}^{primary}-z_{PCA,2}^{primary}| [cm];max |DCA_{xy}| [cm]",
-      240, 0.0, 2.4,
-      200, 0.0, 5.0);
-
     // Compact 3D binning to control output size:
     //   30 bins in V0 pT, 80 bins in mass, 20 bins in |pairDCA|.
     h.h3_k0s = new TH3F(
@@ -444,30 +365,21 @@ namespace
 
   bool passesPromptSelection(const PromptSelection& selection,
                              const double daughterPtMin,
-                             const unsigned int ntpcClustersMin,
-                             const double qualityMax,
+                             const int npointsMin,
                              const double maxAbsTrackDcaXY,
                              const double maxAbsTrackDcaZ,
-                             const double maxAbsPrimaryPcaZ,
-                             const double absDeltaPrimaryPcaZ,
-                             const double absPromptPairDCA)
+                             const double absPairDCA,
+                             const double absLproj,
+                             const double qualityMax)
   {
     return
       daughterPtMin > selection.minDaughterPt &&
-      ntpcClustersMin >= selection.minNtpcClusters &&
-      (selection.maxQuality < 0.0 ||
-       qualityMax < selection.maxQuality) &&
-      (selection.maxAbsTrackDcaXY < 0.0 ||
-       maxAbsTrackDcaXY < selection.maxAbsTrackDcaXY) &&
-      (selection.maxAbsTrackDcaZ < 0.0 ||
-       maxAbsTrackDcaZ < selection.maxAbsTrackDcaZ) &&
-      (selection.maxAbsPrimaryPcaZ < 0.0 ||
-       maxAbsPrimaryPcaZ < selection.maxAbsPrimaryPcaZ) &&
-      (selection.maxAbsDeltaPrimaryPcaZ < 0.0 ||
-       absDeltaPrimaryPcaZ < selection.maxAbsDeltaPrimaryPcaZ) &&
-      (selection.maxAbsPromptPairDCA < 0.0 ||
-       (std::isfinite(absPromptPairDCA) &&
-        absPromptPairDCA < selection.maxAbsPromptPairDCA));
+      npointsMin >= selection.minNpoints &&
+      maxAbsTrackDcaXY < selection.maxAbsTrackDcaXY &&
+      maxAbsTrackDcaZ < selection.maxAbsTrackDcaZ &&
+      absPairDCA < selection.maxAbsPairDCA &&
+      absLproj < selection.maxAbsLproj &&
+      qualityMax < selection.maxQuality;
   }
 }
 
@@ -479,25 +391,9 @@ void MakeK0sPairHistograms(
   const char* treeName = "pairTree",
   const bool requireProtonHigherPt = true,
   const bool ScaleQualityBy10 = false,
-  const Long64_t maxEntries = -1,
-  const bool usePrimaryVertexKinematicsForPrompt = true,
-  const double beamX = 0.158,
-  const double beamY = 0.285,
-  const double beamZ = 0.0)
+  const Long64_t maxEntries = -1)
 {
   TH1::AddDirectory(kTRUE);
-
-  std::cout << "MakeK0sPairHistograms: inputDir=" << inputDir
-            << ", filePattern=" << filePattern
-            << ", outputDir=" << outputDir
-            << ", outputName=" << outputName
-            << ", treeName=" << treeName
-            << ", requireProtonHigherPt=" << requireProtonHigherPt
-            << ", ScaleQualityBy10=" << ScaleQualityBy10
-            << ", maxEntries=" << maxEntries
-            << ", usePrimaryVertexKinematicsForPrompt="
-            << usePrimaryVertexKinematicsForPrompt
-            << std::endl;
 
   const TString chainPattern =
     TString::Format("%s/%s", inputDir, filePattern);
@@ -516,6 +412,9 @@ void MakeK0sPairHistograms(
     "mass_Kshort",
     "mass_Lambda",
     "mass_AntiLambda",
+    "mass_Phi",
+    "mass_D0",
+    "mass_AntiD0",
     "v0_pt",
     "pca_x",
     "pca_y",
@@ -544,9 +443,7 @@ void MakeK0sPairHistograms(
     "charge1",
     "charge2",
     "quality1",
-    "quality2",
-    "dedx_1",
-    "dedx_2"
+    "quality2"
   };
 
   bool missingBranch = false;
@@ -561,37 +458,6 @@ void MakeK0sPairHistograms(
     }
   }
 
-  if (usePrimaryVertexKinematicsForPrompt)
-  {
-    const std::vector<std::string> requiredPrimaryBranches = {
-      "primary_px1",
-      "primary_py1",
-      "primary_pz1",
-      "primary_px2",
-      "primary_py2",
-      "primary_pz2",
-      "primary_pca1_z",
-      "primary_pca2_z",
-      "primary_pca_dz",
-      "primary_pca_valid",
-      "prompt_pairDCA",
-      "prompt_pca_valid",
-      "ntpc_clusters1",
-      "ntpc_clusters2"
-    };
-
-    for (const auto& name : requiredPrimaryBranches)
-    {
-      if (!branchExists(chain, name.c_str()))
-      {
-        std::cerr
-          << "ERROR: usePrimaryVertexKinematicsForPrompt=true, "
-          << "but branch " << name << " is missing" << std::endl;
-        missingBranch = true;
-      }
-    }
-  }
-
   if (missingBranch)
   {
     return;
@@ -600,6 +466,9 @@ void MakeK0sPairHistograms(
   Float_t mass_Kshort = 0.f;
   Float_t mass_Lambda = 0.f;
   Float_t mass_AntiLambda = 0.f;
+  Float_t mass_Phi = 0.f;
+  Float_t mass_D0 = 0.f;
+  Float_t mass_AntiD0 = 0.f;
   Float_t v0_pt = 0.f;
 
   Float_t pca_x = 0.f;
@@ -615,19 +484,6 @@ void MakeK0sPairHistograms(
   Float_t py2 = 0.f;
   Float_t pz2 = 0.f;
 
-  Float_t primary_px1 = 0.f;
-  Float_t primary_py1 = 0.f;
-  Float_t primary_pz1 = 0.f;
-  Float_t primary_px2 = 0.f;
-  Float_t primary_py2 = 0.f;
-  Float_t primary_pz2 = 0.f;
-  Float_t primary_pca1_z = 0.f;
-  Float_t primary_pca2_z = 0.f;
-  Float_t primary_pca_dz = 0.f;
-  Int_t primary_pca_valid = 0;
-  Float_t prompt_pairDCA = 0.f;
-  Int_t prompt_pca_valid = 0;
-
   Float_t v0_px = 0.f;
   Float_t v0_py = 0.f;
   Float_t v0_pz = 0.f;
@@ -642,20 +498,19 @@ void MakeK0sPairHistograms(
   Float_t dca_z2 = 0.f;
   Float_t quality1 = 0.f;
   Float_t quality2 = 0.f;
-  Float_t dedx_1 = 0.f;
-  Float_t dedx_2 = 0.f;
 
   Float_t charge1 = 0;
   Float_t charge2 = 0;
   Short_t npoints1 = 0;
   Short_t npoints2 = 0;
-  UInt_t ntpc_clusters1 = 0;
-  UInt_t ntpc_clusters2 = 0;
 
 
   chain.SetBranchAddress("mass_Kshort", &mass_Kshort);
   chain.SetBranchAddress("mass_Lambda", &mass_Lambda);
   chain.SetBranchAddress("mass_AntiLambda", &mass_AntiLambda);
+  chain.SetBranchAddress("mass_Phi", &mass_Phi);
+  chain.SetBranchAddress("mass_D0", &mass_D0);
+  chain.SetBranchAddress("mass_AntiD0", &mass_AntiD0);
   chain.SetBranchAddress("v0_pt", &v0_pt);
 
   chain.SetBranchAddress("pca_x", &pca_x);
@@ -670,24 +525,6 @@ void MakeK0sPairHistograms(
   chain.SetBranchAddress("px2", &px2);
   chain.SetBranchAddress("py2", &py2);
   chain.SetBranchAddress("pz2", &pz2);
-
-  if (usePrimaryVertexKinematicsForPrompt)
-  {
-    chain.SetBranchAddress("primary_px1", &primary_px1);
-    chain.SetBranchAddress("primary_py1", &primary_py1);
-    chain.SetBranchAddress("primary_pz1", &primary_pz1);
-    chain.SetBranchAddress("primary_px2", &primary_px2);
-    chain.SetBranchAddress("primary_py2", &primary_py2);
-    chain.SetBranchAddress("primary_pz2", &primary_pz2);
-    chain.SetBranchAddress("primary_pca1_z", &primary_pca1_z);
-    chain.SetBranchAddress("primary_pca2_z", &primary_pca2_z);
-    chain.SetBranchAddress("primary_pca_dz", &primary_pca_dz);
-    chain.SetBranchAddress("primary_pca_valid", &primary_pca_valid);
-    chain.SetBranchAddress("prompt_pairDCA", &prompt_pairDCA);
-    chain.SetBranchAddress("prompt_pca_valid", &prompt_pca_valid);
-    chain.SetBranchAddress("ntpc_clusters1", &ntpc_clusters1);
-    chain.SetBranchAddress("ntpc_clusters2", &ntpc_clusters2);
-  }
 
   chain.SetBranchAddress("v0_px", &v0_px);
   chain.SetBranchAddress("v0_py", &v0_py);
@@ -706,10 +543,14 @@ void MakeK0sPairHistograms(
   chain.SetBranchAddress("charge2", &charge2);
   chain.SetBranchAddress("quality1", &quality1);
   chain.SetBranchAddress("quality2", &quality2);
-  chain.SetBranchAddress("dedx_1", &dedx_1);
-  chain.SetBranchAddress("dedx_2", &dedx_2);
   chain.SetBranchAddress("npoints1", &npoints1);
   chain.SetBranchAddress("npoints2", &npoints2);
+
+  if (ScaleQualityBy10)
+  {
+    quality1 *= 10;
+    quality2 *= 10;
+  }
 
   // Ten cumulative cut levels.
   //
@@ -744,27 +585,27 @@ void MakeK0sPairHistograms(
     },
     {
       "cut04_pairDCA_15mm",
-      "|z|<12, pt>0.20, dz<0.50, pairDCA<1.5",
+      "|z|<12, pt>0.30, dz<0.50, pairDCA<1.5",
       12.0, 0.50, 0.20, 2.0, 0.99, 1.50, 0.88, 15.0, 30
     },
     {
       "cut05_pairDCA_10mm",
-      "|z|<10, pt>0.20, dz<0.40, pairDCA<1.0",
+      "|z|<10, pt>0.30, dz<0.30, pairDCA<1.0",
       10.0, 0.40, 0.20, 2.0, 0.99, 1.00, 0.90, 13.0, 30
     },
     {
       "cut06_pairDCA_7mm",
-      "|z|<10, pt>0.20, dz<0.25, pairDCA<0.7",
+      "|z|<10, pt>0.3, dz<0.25, pairDCA<0.7",
       10.0, 0.25, 0.20, 2.0, 0.99, 0.70, 0.93, 12.0, 32
     },
     {
       "cut07_pairDCA_5mm",
-      "|z|<10, pt>0.200, dz<0.20, pairDCA<0.5",
+      "|z|<10, pt>0.30, dz<0.20, pairDCA<0.5",
       10.0, 0.20, 0.20, 2.0, 0.99, 0.50, 0.95, 10.0, 32
     },
     {
       "cut08_pairDCA_3mm",
-      "|z|<8, pt>0.20, dz<0.15, pairDCA<0.3",
+      "|z|<8, pt>0.30, dz<0.15, pairDCA<0.3",
       8.00, 0.15, 0.20, 2.0, 0.99, 0.30, 0.98, 8.0, 35
     },
     {
@@ -790,13 +631,6 @@ void MakeK0sPairHistograms(
   }
 
   output->cd();
-
-  TNamed promptKinematicsInfo(
-    "prompt_kinematics",
-    usePrimaryVertexKinematicsForPrompt
-      ? "daughter momenta at independent transverse PCAs to the configured beam axis"
-      : "secondary pair-PCA daughter momenta");
-  promptKinematicsInfo.Write();
 
   TH1I* h_cutflow_unlike = new TH1I(
     "h_cutflow_unlike",
@@ -907,45 +741,19 @@ void MakeK0sPairHistograms(
   // These candidates are treated as primary within the present DCA resolution.
   const std::vector<PromptSelection> promptSelections = {
     {
-      "primary_dz_2p0",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
-      "|primary PCA z|<20, |Delta primary PCA z|<2.0; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 2.0, -1.0
+      "prompt_loose",
+      "pT>0.20, npoints>30, |DCAxy|<1.5, |DCAz|<3.0, pairDCA<1.5, |Lproj|<1.5, quality<20",
+      0.20, 30, 1.50, 3.00, 1.50, 1.50, 20.0
     },
     {
-      "primary_dz_1p0",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
-      "|primary PCA z|<20, |Delta primary PCA z|<1.0; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 1.0, -1.0
+      "prompt_baseline",
+      "pT>0.30, npoints>30, |DCAxy|<1.0, |DCAz|<2.0, pairDCA<1.0, |Lproj|<1.0, quality<15",
+      0.30, 30, 1.00, 2.00, 1.00, 1.00, 15.0
     },
     {
-      "primary_dz_0p5",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
-      "|primary PCA z|<20, |Delta primary PCA z|<0.5; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 0.5, -1.0
-    },
-    {
-      "primary_dz_0p2",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
-      "|primary PCA z|<20, |Delta primary PCA z|<0.2; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 0.2, -1.0
-    },
-    {
-      "primary_dz_0p5_track",
-      "primary momenta, pT>0.30, nTPC>=30, quality<15, |DCAxy|<1, "
-      "|primary PCA z|<20, |Delta primary PCA z|<0.5",
-      0.30, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0
-    },
-    {
-      "primary_dz_0p5_dcaz2",
-      "same as primary_dz_0p5_track plus |DCAz to fixed z=0|<2; diagnostic only",
-      0.30, 30, 15.0, 1.0, 2.0, 20.0, 0.5, -1.0
-    },
-    {
-      "primary_dz_0p5_pid",
-      "same as primary_dz_0p5_track plus pion dE/dx<300 and kaon dE/dx>300",
-      0.30, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0,
-      -1.0, 300.0, 300.0, -1.0
+      "prompt_tight",
+      "pT>0.40, npoints>35, |DCAxy|<0.5, |DCAz|<1.0, pairDCA<0.5, |Lproj|<0.5, quality<10",
+      0.40, 35, 0.50, 1.00, 0.50, 0.50, 10.0
     }
   };
 
@@ -989,10 +797,6 @@ void MakeK0sPairHistograms(
     << "Added " << nFiles
     << " files, total entries = " << totalEntries
     << ", processing = " << entriesToProcess
-    << ", prompt kinematics = "
-    << (usePrimaryVertexKinematicsForPrompt
-          ? "primary vertex"
-          : "secondary pair PCA")
     << std::endl;
 
   for (Long64_t entry = 0;
@@ -1000,9 +804,6 @@ void MakeK0sPairHistograms(
        ++entry)
   {
     chain.GetEntry(entry);
-
-    const double qualityScale =
-      ScaleQualityBy10 ? 10.0 : 1.0;
 
     if (entry % 100000 == 0)
     {
@@ -1028,95 +829,17 @@ void MakeK0sPairHistograms(
       continue;
     }
 
-    // Secondary pair-PCA kinematics: always used for K0S/Lambda.
     const double pt1 = std::hypot(px1, py1);
     const double pt2 = std::hypot(px2, py2);
 
     const double daughterPtMin =
       std::min(pt1, pt2);
 
-    // Prompt kinematics: selectable between the primary vertex and pair PCA.
-    const double promptPx1 =
-      usePrimaryVertexKinematicsForPrompt ? primary_px1 : px1;
-    const double promptPy1 =
-      usePrimaryVertexKinematicsForPrompt ? primary_py1 : py1;
-    const double promptPz1 =
-      usePrimaryVertexKinematicsForPrompt ? primary_pz1 : pz1;
-
-    const double promptPx2 =
-      usePrimaryVertexKinematicsForPrompt ? primary_px2 : px2;
-    const double promptPy2 =
-      usePrimaryVertexKinematicsForPrompt ? primary_py2 : py2;
-    const double promptPz2 =
-      usePrimaryVertexKinematicsForPrompt ? primary_pz2 : pz2;
-
-    const bool promptKinematicsFinite =
-      primary_pca_valid != 0 &&
-      std::isfinite(primary_pca1_z) &&
-      std::isfinite(primary_pca2_z) &&
-      std::isfinite(promptPx1) &&
-      std::isfinite(promptPy1) &&
-      std::isfinite(promptPz1) &&
-      std::isfinite(promptPx2) &&
-      std::isfinite(promptPy2) &&
-      std::isfinite(promptPz2);
-
-    const double promptPt1 =
-      std::hypot(promptPx1, promptPy1);
-    const double promptPt2 =
-      std::hypot(promptPx2, promptPy2);
-    const double promptDaughterPtMin =
-      std::min(promptPt1, promptPt2);
-
-    const double promptPairPt =
-      std::hypot(promptPx1 + promptPx2,
-                 promptPy1 + promptPy2);
-
-    const double promptMassPhi =
-      invariantMass(
-        promptPx1, promptPy1, promptPz1, kKaonMass,
-        promptPx2, promptPy2, promptPz2, kKaonMass);
-
-    double promptMassD0 = -1.0;
-    double promptMassAntiD0 = -1.0;
-
-    if (charge1 > 0)
-    {
-      // D0: K- pi+; anti-D0: K+ pi-.
-      promptMassD0 =
-        invariantMass(
-          promptPx2, promptPy2, promptPz2, kKaonMass,
-          promptPx1, promptPy1, promptPz1, kPionMass);
-
-      promptMassAntiD0 =
-        invariantMass(
-          promptPx1, promptPy1, promptPz1, kKaonMass,
-          promptPx2, promptPy2, promptPz2, kPionMass);
-    }
-    else
-    {
-      promptMassD0 =
-        invariantMass(
-          promptPx1, promptPy1, promptPz1, kKaonMass,
-          promptPx2, promptPy2, promptPz2, kPionMass);
-
-      promptMassAntiD0 =
-        invariantMass(
-          promptPx2, promptPy2, promptPz2, kKaonMass,
-          promptPx1, promptPy1, promptPz1, kPionMass);
-    }
-
     const double absDeltaPcaZ =
       std::abs(pca1_z - pca2_z);
 
-    // Secondary V0 flight is measured from the configured beam position,
-    // not from the detector origin.
-    const double flightX = pca_x - beamX;
-    const double flightY = pca_y - beamY;
-    const double flightZ = pca_z - beamZ;
-
     const double decayRadius =
-      std::hypot(flightX, flightY);
+      std::hypot(pca_x, pca_y);
 
     const double absAlpha =
       std::abs(alpha);
@@ -1124,34 +847,17 @@ void MakeK0sPairHistograms(
     const double absPairDCA =
       std::abs(pairDCA);
 
+    const double absLproj = std::abs(Lproj);
     const double maxAbsTrackDcaXY =
       std::max(std::abs(dca_xy1), std::abs(dca_xy2));
     const double maxAbsTrackDcaZ =
       std::max(std::abs(dca_z1), std::abs(dca_z2));
 
     const double qualityMax =
-      qualityScale * std::max(quality1, quality2);
+      std::max(quality1, quality2);
 
     const int npointsMin =
       std::min<int>(npoints1, npoints2);
-
-    const unsigned int ntpcClustersMin =
-      std::min(ntpc_clusters1, ntpc_clusters2);
-
-    const double maxAbsPrimaryPcaZ =
-      std::max(
-        std::abs(primary_pca1_z - beamZ),
-        std::abs(primary_pca2_z - beamZ));
-
-    const double absDeltaPrimaryPcaZ =
-      std::isfinite(primary_pca_dz)
-        ? std::abs(primary_pca_dz)
-        : std::abs(primary_pca1_z - primary_pca2_z);
-
-    const double absPromptPairDCA =
-      (prompt_pca_valid != 0 && std::isfinite(prompt_pairDCA))
-        ? std::abs(prompt_pairDCA)
-        : std::numeric_limits<double>::quiet_NaN();
 
     const double v0Momentum =
       std::sqrt(
@@ -1161,15 +867,15 @@ void MakeK0sPairHistograms(
 
     const double flightLength =
       std::sqrt(
-        flightX * flightX +
-        flightY * flightY +
-        flightZ * flightZ);
+        pca_x * pca_x +
+        pca_y * pca_y +
+        pca_z * pca_z);
 
     const double dira =
       (v0Momentum > 0. && flightLength > 0.)
-        ? (v0_px * flightX +
-           v0_py * flightY +
-           v0_pz * flightZ) /
+        ? (v0_px * pca_x +
+           v0_py * pca_y +
+           v0_pz * pca_z) /
           (v0Momentum * flightLength)
         : -2.;
 
@@ -1181,8 +887,6 @@ void MakeK0sPairHistograms(
 
     double positivePt = -1.;
     double negativePt = -1.;
-    double positiveDedx = -1.;
-    double negativeDedx = -1.;
 
     if (unlikeSign)
     {
@@ -1190,15 +894,11 @@ void MakeK0sPairHistograms(
       {
         positivePt = pt1;
         negativePt = pt2;
-        positiveDedx = dedx_1;
-        negativeDedx = dedx_2;
       }
       else
       {
         positivePt = pt2;
         negativePt = pt1;
-        positiveDedx = dedx_2;
-        negativeDedx = dedx_1;
       }
     }
 
@@ -1260,32 +960,10 @@ void MakeK0sPairHistograms(
       const auto& selection =
         selections[selectionIndex];
 
-      const bool kshortDedxPass =
-        passesDedx(dedx_1, selection.pionDedxMin, selection.pionDedxMax) &&
-        passesDedx(dedx_2, selection.pionDedxMin, selection.pionDedxMax);
-
-      const bool lambdaDedxPass =
-        unlikeSign &&
-        passesDedx(positiveDedx,
-                   selection.protonDedxMin,
-                   selection.protonDedxMax) &&
-        passesDedx(negativeDedx,
-                   selection.pionDedxMin,
-                   selection.pionDedxMax);
-
-      const bool antiLambdaDedxPass =
-        unlikeSign &&
-        passesDedx(positiveDedx,
-                   selection.pionDedxMin,
-                   selection.pionDedxMax) &&
-        passesDedx(negativeDedx,
-                   selection.protonDedxMin,
-                   selection.protonDedxMax);
-
-      //if (!passV0DeltaPhi)
-      //{
-      //  continue;
-      //}
+      if (!passV0DeltaPhi)
+      {
+        continue;
+      }
 
       if (!passesSelection(
             selection,
@@ -1319,19 +997,21 @@ void MakeK0sPairHistograms(
             .at(selection.name)
             .at(chargeName(category));
 
-        if (kshortDedxPass && passV0DeltaPhi)
-        {
-          h.h_k0s_mass->Fill(mass_Kshort);
-          h.h_k0s_mass_vs_v0pt->Fill(v0_pt, mass_Kshort);
-          h.h3_k0s->Fill(v0_pt, mass_Kshort, absPairDCA);
-          h.h3_k0s_pt1_vs_pt2_vs_mass->Fill(
-            pt1, pt2, mass_Kshort);
+        h.h_k0s_mass->Fill(mass_Kshort);
 
-          if (category == ChargeCategory::Unlike)
-          {
-            h.h3_k0s_ptplus_vs_ptminus_vs_mass->Fill(
-              positivePt, negativePt, mass_Kshort);
-          }
+        h.h_k0s_mass_vs_v0pt->Fill(
+          v0_pt, mass_Kshort);
+
+        h.h3_k0s->Fill(
+          v0_pt, mass_Kshort, absPairDCA);
+
+        h.h3_k0s_pt1_vs_pt2_vs_mass->Fill(
+          pt1, pt2, mass_Kshort);
+
+        if (category == ChargeCategory::Unlike)
+        {
+          h.h3_k0s_ptplus_vs_ptminus_vs_mass->Fill(
+            positivePt, negativePt, mass_Kshort);
         }
 
         h.h_armenteros_podolanski->Fill(
@@ -1344,7 +1024,7 @@ void MakeK0sPairHistograms(
         // for unlike-sign pairs.
         if (category == ChargeCategory::Unlike)
         {
-          if (lambdaProtonPtPass && lambdaDedxPass && passV0DeltaPhi)
+          if (lambdaProtonPtPass)
           {
             h.h_lambda_mass->Fill(mass_Lambda);
             h.h_lambda_mass_vs_v0pt->Fill(
@@ -1354,7 +1034,7 @@ void MakeK0sPairHistograms(
               v0_pt, mass_Lambda, absPairDCA);
           }
 
-          if (antiLambdaProtonPtPass && antiLambdaDedxPass && passV0DeltaPhi)
+          if (antiLambdaProtonPtPass)
           {
             h.h_antilambda_mass->Fill(mass_AntiLambda);
             h.h_antilambda_mass_vs_v0pt->Fill(
@@ -1368,127 +1048,50 @@ void MakeK0sPairHistograms(
     }
 
     // Prompt phi and D0/anti-D0 QA.
-    // Physical prompt candidates are unlike-sign. The present reconstruction
-    // retains same-sign rows only through the K0S background path, so those
-    // rows are not an unbiased prompt like-sign sample and are not filled here.
+    // Phi is filled for unlike- and like-sign pairs.
+    // D0 and anti-D0 are filled only for unlike-sign pairs because the
+    // K/pi mass assignment is charge-specific.
     for (const auto& promptSelection : promptSelections)
     {
-      const bool phiDedxPass =
-        passesDedx(dedx_1,
-                   promptSelection.kaonDedxMin,
-                   promptSelection.kaonDedxMax) &&
-        passesDedx(dedx_2,
-                   promptSelection.kaonDedxMin,
-                   promptSelection.kaonDedxMax);
-
-      const bool d0DedxPass =
-        unlikeSign &&
-        passesDedx(positiveDedx,
-                   promptSelection.pionDedxMin,
-                   promptSelection.pionDedxMax) &&
-        passesDedx(negativeDedx,
-                   promptSelection.kaonDedxMin,
-                   promptSelection.kaonDedxMax);
-
-      const bool antiD0DedxPass =
-        unlikeSign &&
-        passesDedx(positiveDedx,
-                   promptSelection.kaonDedxMin,
-                   promptSelection.kaonDedxMax) &&
-        passesDedx(negativeDedx,
-                   promptSelection.pionDedxMin,
-                   promptSelection.pionDedxMax);
-
-      if (!promptKinematicsFinite ||
-          !passesPromptSelection(
+      if (!passesPromptSelection(
             promptSelection,
-            promptDaughterPtMin,
-            ntpcClustersMin,
-            qualityMax,
+            daughterPtMin,
+            npointsMin,
             maxAbsTrackDcaXY,
             maxAbsTrackDcaZ,
-            maxAbsPrimaryPcaZ,
-            absDeltaPrimaryPcaZ,
-            absPromptPairDCA))
+            absPairDCA,
+            absLproj,
+            qualityMax))
       {
         continue;
       }
 
       for (const auto category : categories)
       {
-        if (category != ChargeCategory::Unlike)
-        {
-          continue;
-        }
-
         HistSet& h =
           promptHistograms
             .at(promptSelection.name)
             .at(chargeName(category));
 
-        if (phiDedxPass)
-        {
-          h.h_phi_mass->Fill(promptMassPhi);
-          h.h_phi_mass_vs_v0pt->Fill(
-            promptPairPt, promptMassPhi);
+        h.h_phi_mass->Fill(mass_Phi);
+        h.h_phi_mass_vs_v0pt->Fill(v0_pt, mass_Phi);
+        h.h3_phi->Fill(v0_pt, mass_Phi, absPairDCA);
 
-          if (std::isfinite(absPromptPairDCA))
-          {
-            h.h3_phi->Fill(
-              promptPairPt, promptMassPhi, absPromptPairDCA);
-          }
-        }
-
-        h.h_primary_pca_dz->Fill(absDeltaPrimaryPcaZ);
-        h.h_primary_pca_z1_vs_z2->Fill(
-          primary_pca1_z, primary_pca2_z);
-        h.h_max_dca_xy_vs_primary_pca_dz->Fill(
-          absDeltaPrimaryPcaZ, maxAbsTrackDcaXY);
-
-        if (std::isfinite(absPromptPairDCA))
-        {
-          h.h_pair_dca_vs_delta_pca_z->Fill(
-            absDeltaPrimaryPcaZ, absPromptPairDCA);
-        }
+        h.h_pair_dca_vs_delta_pca_z->Fill(
+          absDeltaPcaZ, absPairDCA);
 
         if (category == ChargeCategory::Unlike)
         {
-          if (d0DedxPass)
-          {
-            h.h_d0_mass->Fill(promptMassD0);
-            h.h_d0_mass_vs_v0pt->Fill(
-              promptPairPt, promptMassD0);
-            if (std::isfinite(absPromptPairDCA))
-            {
-              h.h3_d0->Fill(
-                promptPairPt, promptMassD0, absPromptPairDCA);
-            }
-          }
+          h.h_d0_mass->Fill(mass_D0);
+          h.h_d0_mass_vs_v0pt->Fill(v0_pt, mass_D0);
+          h.h3_d0->Fill(v0_pt, mass_D0, absPairDCA);
 
-          if (antiD0DedxPass)
-          {
-            h.h_antid0_mass->Fill(promptMassAntiD0);
-            h.h_antid0_mass_vs_v0pt->Fill(
-              promptPairPt, promptMassAntiD0);
-            if (std::isfinite(absPromptPairDCA))
-            {
-              h.h3_antid0->Fill(
-                promptPairPt, promptMassAntiD0, absPromptPairDCA);
-            }
-          }
+          h.h_antid0_mass->Fill(mass_AntiD0);
+          h.h_antid0_mass_vs_v0pt->Fill(v0_pt, mass_AntiD0);
+          h.h3_antid0->Fill(v0_pt, mass_AntiD0, absPairDCA);
         }
       }
     }
-
-    const bool exactKshortDedxPass =
-      passesDedx(dedx_1, -1.0, 400.0) &&
-      passesDedx(dedx_2, -1.0, 400.0);
-
-    const bool exactLambdaDedxPass =
-      unlikeSign && passesDedx(negativeDedx, -1.0, 400.0);
-
-    const bool exactAntiLambdaDedxPass =
-      unlikeSign && passesDedx(positiveDedx, -1.0, 400.0);
 
     const std::vector<std::pair<std::string, bool>> exactPasses = {
       {"exactCut1", exactCut1},
@@ -1510,19 +1113,16 @@ void MakeK0sPairHistograms(
             .at(exactPass.first)
             .at(chargeName(category));
 
-        if (exactKshortDedxPass)
-        {
-          h.h_k0s_mass->Fill(mass_Kshort);
-          h.h_k0s_mass_vs_v0pt->Fill(v0_pt, mass_Kshort);
-          h.h3_k0s->Fill(v0_pt, mass_Kshort, absPairDCA);
-          h.h3_k0s_pt1_vs_pt2_vs_mass->Fill(
-            pt1, pt2, mass_Kshort);
+        h.h_k0s_mass->Fill(mass_Kshort);
+        h.h_k0s_mass_vs_v0pt->Fill(v0_pt, mass_Kshort);
+        h.h3_k0s->Fill(v0_pt, mass_Kshort, absPairDCA);
+        h.h3_k0s_pt1_vs_pt2_vs_mass->Fill(
+          pt1, pt2, mass_Kshort);
 
-          if (category == ChargeCategory::Unlike)
-          {
-            h.h3_k0s_ptplus_vs_ptminus_vs_mass->Fill(
-              positivePt, negativePt, mass_Kshort);
-          }
+        if (category == ChargeCategory::Unlike)
+        {
+          h.h3_k0s_ptplus_vs_ptminus_vs_mass->Fill(
+            positivePt, negativePt, mass_Kshort);
         }
 
         h.h_armenteros_podolanski->Fill(alpha, qT);
@@ -1531,14 +1131,14 @@ void MakeK0sPairHistograms(
 
         if (category == ChargeCategory::Unlike)
         {
-          if (lambdaProtonPtPass && exactLambdaDedxPass)
+          if (lambdaProtonPtPass)
           {
             h.h_lambda_mass->Fill(mass_Lambda);
             h.h_lambda_mass_vs_v0pt->Fill(v0_pt, mass_Lambda);
             h.h3_lambda->Fill(v0_pt, mass_Lambda, absPairDCA);
           }
 
-          if (antiLambdaProtonPtPass && exactAntiLambdaDedxPass)
+          if (antiLambdaProtonPtPass)
           {
             h.h_antilambda_mass->Fill(mass_AntiLambda);
             h.h_antilambda_mass_vs_v0pt->Fill(v0_pt, mass_AntiLambda);

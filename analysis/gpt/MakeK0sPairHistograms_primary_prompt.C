@@ -487,18 +487,6 @@ void MakeK0sPairHistograms(
 {
   TH1::AddDirectory(kTRUE);
 
-  std::cout << "MakeK0sPairHistograms: inputDir=" << inputDir
-            << ", filePattern=" << filePattern
-            << ", outputDir=" << outputDir
-            << ", outputName=" << outputName
-            << ", treeName=" << treeName
-            << ", requireProtonHigherPt=" << requireProtonHigherPt
-            << ", ScaleQualityBy10=" << ScaleQualityBy10
-            << ", maxEntries=" << maxEntries
-            << ", usePrimaryVertexKinematicsForPrompt="
-            << usePrimaryVertexKinematicsForPrompt
-            << std::endl;
-
   const TString chainPattern =
     TString::Format("%s/%s", inputDir, filePattern);
 
@@ -744,28 +732,28 @@ void MakeK0sPairHistograms(
     },
     {
       "cut04_pairDCA_15mm",
-      "|z|<12, pt>0.20, dz<0.50, pairDCA<1.5",
-      12.0, 0.50, 0.20, 2.0, 0.99, 1.50, 0.88, 15.0, 30
+      "|z|<12, pt>0.30, dz<0.50, pairDCA<1.5",
+      12.0, 0.50, 0.30, 2.0, 0.99, 1.50, 0.88, 15.0, 30
     },
     {
       "cut05_pairDCA_10mm",
-      "|z|<10, pt>0.20, dz<0.40, pairDCA<1.0",
-      10.0, 0.40, 0.20, 2.0, 0.99, 1.00, 0.90, 13.0, 30
+      "|z|<10, pt>0.30, dz<0.30, pairDCA<1.0",
+      10.0, 0.30, 0.30, 2.0, 0.99, 1.00, 0.90, 13.0, 30
     },
     {
       "cut06_pairDCA_7mm",
-      "|z|<10, pt>0.20, dz<0.25, pairDCA<0.7",
-      10.0, 0.25, 0.20, 2.0, 0.99, 0.70, 0.93, 12.0, 32
+      "|z|<10, pt>0.3, dz<0.25, pairDCA<0.7",
+      10.0, 0.25, 0.30, 2.0, 0.99, 0.70, 0.93, 12.0, 32
     },
     {
       "cut07_pairDCA_5mm",
-      "|z|<10, pt>0.200, dz<0.20, pairDCA<0.5",
-      10.0, 0.20, 0.20, 2.0, 0.99, 0.50, 0.95, 10.0, 32
+      "|z|<10, pt>0.30, dz<0.20, pairDCA<0.5",
+      10.0, 0.20, 0.30, 2.0, 0.99, 0.50, 0.95, 10.0, 32
     },
     {
       "cut08_pairDCA_3mm",
-      "|z|<8, pt>0.20, dz<0.15, pairDCA<0.3",
-      8.00, 0.15, 0.20, 2.0, 0.99, 0.30, 0.98, 8.0, 35
+      "|z|<8, pt>0.30, dz<0.15, pairDCA<0.3",
+      8.00, 0.15, 0.30, 2.0, 0.99, 0.30, 0.98, 8.0, 35
     },
     {
       "cut09_pairDCA_2mm",

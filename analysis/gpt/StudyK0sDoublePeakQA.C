@@ -127,6 +127,7 @@ namespace
     TH2F* massRecalc = nullptr;
     TH2F* massDifference = nullptr;
     TH3F* deltaPhiVsMassVsPt = nullptr;
+    TH2F* massvsPtminusoverPtplus = nullptr;
   };
 
   MassVsQA bookMassVsQA(TDirectory* dir)
@@ -169,6 +170,7 @@ namespace
     h.deltaPhiVsMassVsPt = new TH3F("h_delta_phi_vs_mass_vs_pt", "K^{0}_{S} #Delta#phi_{+-} vs m_{#pi#pi} vs p_{T}^{V0}; m_{#pi#pi} [GeV/c^{2}]; p_{T}^{V0} [GeV/c]; #Delta#phi_{+-} [rad]",
       300, 0.42, 0.57, 50, 0., 5., 144, -TMath::Pi(), TMath::Pi());
     h.massDifference= bookMassVs(dir, "h_mass_vs_stored_minus_recalculated", "stored mass - recalculated mass [GeV/c^{2}]", 200, -0.02, 0.02);
+    h.massvsPtminusoverPtplus = bookMassVs(dir, "h_mass_vs_pt_minus_over_pt_plus", "p_{T}^{-}/p_{T}^{+}", 100, 0., 5.0);
     return h;
   }
 
@@ -223,6 +225,7 @@ namespace
     h.qualityMax->Fill(std::max(qualityPos, qualityNeg), mass);
     h.massRecalc->Fill(massRecalc, mass);
     h.massDifference->Fill(mass - massRecalc, mass);
+    h.massvsPtminusoverPtplus->Fill(ptNeg / ptPos, mass);
     //h.deltaPhiVsMassVsPt->Fill(mass, v0Pt, wrapPhi(phiPos - phiNeg));
   }
 
