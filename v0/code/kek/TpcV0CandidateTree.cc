@@ -27,7 +27,10 @@
 #include <phool/PHCompositeNode.h>
 #include <phool/getClass.h>
 
+#include <TAxis.h>
 #include <TFile.h>
+#include <TH3.h>
+#include <TNamed.h>
 #include <TTree.h>
 
 #include <Eigen/Dense>
@@ -161,6 +164,155 @@ namespace
            std::isfinite(residual_rphi) &&
            std::isfinite(residual_z);
   }
+
+  struct AxisInterpolation
+  {
+    int lower{1};
+    int upper{1};
+    double fraction{0.0};
+  };
+
+  AxisInterpolation axis_interpolation(const TAxis *axis,
+                                       double value,
+                                       const bool periodic)
+  {
+    AxisInterpolation result;
+    if (!axis || axis->GetNbins() <= 1 || !std::isfinite(value))
+    {
+      return result;
+    }
+
+    const int number_of_bins = axis->GetNbins();
+    const double first_center = axis->GetBinCenter(1);
+    const double last_center = axis->GetBinCenter(number_of_bins);
+
+    if (periodic)
+    {
+      const double lower_edge = axis->GetBinLowEdge(1);
+      const double upper_edge = axis->GetBinUpEdge(number_of_bins);
+      const double width = upper_edge - lower_edge;
+      if (!(width > 0.0))
+      {
+        return result;
+      }
+
+      while (value < lower_edge)
+      {
+        value += width;
+      }
+      while (value >= upper_edge)
+      {
+        value -= width;
+      }
+
+      if (value < first_center)
+      {
+        result.lower = number_of_bins;
+        result.upper = 1;
+        const double lower_center = last_center - width;
+        result.fraction = (value - lower_center) /
+                          std::max(first_center - lower_center, 1.0e-12);
+        result.fraction = std::clamp(result.fraction, 0.0, 1.0);
+        return result;
+      }
+
+      if (value > last_center)
+      {
+        result.lower = number_of_bins;
+        result.upper = 1;
+        const double upper_center = first_center + width;
+        result.fraction = (value - last_center) /
+                          std::max(upper_center - last_center, 1.0e-12);
+        result.fraction = std::clamp(result.fraction, 0.0, 1.0);
+        return result;
+      }
+    }
+    else
+    {
+      if (value <= first_center)
+      {
+        result.lower = result.upper = 1;
+        return result;
+      }
+      if (value >= last_center)
+      {
+        result.lower = result.upper = number_of_bins;
+        return result;
+      }
+    }
+
+    const int containing_bin = std::clamp(axis->FindFixBin(value), 1, number_of_bins);
+    const double containing_center = axis->GetBinCenter(containing_bin);
+
+    if (value >= containing_center)
+    {
+      result.lower = containing_bin;
+      result.upper = std::min(containing_bin + 1, number_of_bins);
+    }
+    else
+    {
+      result.lower = std::max(containing_bin - 1, 1);
+      result.upper = containing_bin;
+    }
+
+    if (result.lower == result.upper)
+    {
+      result.fraction = 0.0;
+      return result;
+    }
+
+    const double lower_center = axis->GetBinCenter(result.lower);
+    const double upper_center = axis->GetBinCenter(result.upper);
+    result.fraction = (value - lower_center) /
+                      std::max(upper_center - lower_center, 1.0e-12);
+    result.fraction = std::clamp(result.fraction, 0.0, 1.0);
+    return result;
+  }
+
+  double interpolate_histogram(const TH3 *histogram,
+                               const double r,
+                               const double phi,
+                               const double z)
+  {
+    if (!histogram)
+    {
+      return 0.0;
+    }
+
+    const AxisInterpolation radial =
+        axis_interpolation(histogram->GetXaxis(), r, false);
+    const AxisInterpolation azimuthal =
+        axis_interpolation(histogram->GetYaxis(), phi, true);
+    const AxisInterpolation longitudinal =
+        axis_interpolation(histogram->GetZaxis(), z, false);
+
+    const int radial_bins[2] = {radial.lower, radial.upper};
+    const int azimuthal_bins[2] = {azimuthal.lower, azimuthal.upper};
+    const int longitudinal_bins[2] = {longitudinal.lower, longitudinal.upper};
+    const double radial_weights[2] = {1.0 - radial.fraction, radial.fraction};
+    const double azimuthal_weights[2] = {1.0 - azimuthal.fraction, azimuthal.fraction};
+    const double longitudinal_weights[2] = {1.0 - longitudinal.fraction,
+                                            longitudinal.fraction};
+
+    double value = 0.0;
+    for (int ir = 0; ir < 2; ++ir)
+    {
+      for (int iphi = 0; iphi < 2; ++iphi)
+      {
+        for (int iz = 0; iz < 2; ++iz)
+        {
+          const double weight = radial_weights[ir] *
+                                azimuthal_weights[iphi] *
+                                longitudinal_weights[iz];
+          value += weight * histogram->GetBinContent(radial_bins[ir],
+                                                      azimuthal_bins[iphi],
+                                                      longitudinal_bins[iz]);
+        }
+      }
+    }
+    return value;
+  }
+
 }  // namespace
 
 TpcV0CandidateTree::TpcV0CandidateTree(const std::string &name,
@@ -221,8 +373,265 @@ bool TpcV0CandidateTree::set_track_fit_method(const std::string &mode)
   return false;
 }
 
+bool TpcV0CandidateTree::load_spatial_correction_map()
+{
+  close_spatial_correction_map();
+
+  if (!m_apply_spatial_correction)
+  {
+    return true;
+  }
+
+  if (m_spatial_correction_filename.empty())
+  {
+    std::cerr << PHWHERE << Name()
+              << ": spatial correction is enabled, but no map file was configured"
+              << std::endl;
+    return false;
+  }
+
+  m_spatial_correction_file = TFile::Open(m_spatial_correction_filename.c_str(), "READ");
+  if (!m_spatial_correction_file || m_spatial_correction_file->IsZombie())
+  {
+    std::cerr << PHWHERE << Name()
+              << ": failed to open spatial correction file "
+              << m_spatial_correction_filename << std::endl;
+    close_spatial_correction_map();
+    return false;
+  }
+
+  for (int side = 0; side < 2; ++side)
+  {
+    const std::string prefix = "side" + std::to_string(side) + "/";
+    m_spatial_delta_r[side] = dynamic_cast<TH3 *>(
+        m_spatial_correction_file->Get((prefix + "h3_delta_r").c_str()));
+    m_spatial_rdelta_phi[side] = dynamic_cast<TH3 *>(
+        m_spatial_correction_file->Get((prefix + "h3_rdelta_phi").c_str()));
+    m_spatial_delta_z[side] = dynamic_cast<TH3 *>(
+        m_spatial_correction_file->Get((prefix + "h3_delta_z").c_str()));
+
+    if (!m_spatial_delta_r[side] || !m_spatial_rdelta_phi[side] ||
+        (m_apply_spatial_correction_z && !m_spatial_delta_z[side]))
+    {
+      std::cerr << PHWHERE << Name()
+                << ": missing spatial correction histogram(s) for side "
+                << side << " in " << m_spatial_correction_filename << std::endl;
+      close_spatial_correction_map();
+      return false;
+    }
+  }
+
+  std::cout << Name() << ": spatial correction enabled"
+            << " file=" << m_spatial_correction_filename
+            << " scale=" << m_spatial_correction_scale
+            << " apply_z=" << (m_apply_spatial_correction_z ? 1 : 0)
+            << std::endl;
+  return true;
+}
+
+void TpcV0CandidateTree::close_spatial_correction_map()
+{
+  for (int side = 0; side < 2; ++side)
+  {
+    m_spatial_delta_r[side] = nullptr;
+    m_spatial_rdelta_phi[side] = nullptr;
+    m_spatial_delta_z[side] = nullptr;
+  }
+
+  if (m_spatial_correction_file)
+  {
+    m_spatial_correction_file->Close();
+    delete m_spatial_correction_file;
+    m_spatial_correction_file = nullptr;
+  }
+}
+
+bool TpcV0CandidateTree::evaluate_spatial_correction(const int side,
+                                                       const double r,
+                                                       const double phi,
+                                                       const double z,
+                                                       Vec3 &correction) const
+{
+  correction = {};
+  if (!m_apply_spatial_correction || side < 0 || side > 1 ||
+      !std::isfinite(r) || !std::isfinite(phi) || !std::isfinite(z) ||
+      !(r > 0.0))
+  {
+    return false;
+  }
+
+  const TH3 *reference = m_spatial_delta_r[side];
+  if (!reference)
+  {
+    return false;
+  }
+
+  const TAxis *z_axis = reference->GetZaxis();
+  const int number_of_z_bins = z_axis ? z_axis->GetNbins() : 0;
+  if (!z_axis || number_of_z_bins <= 0)
+  {
+    return false;
+  }
+
+  int first_physical_bin = 1;
+  int last_physical_bin = number_of_z_bins;
+  if (side == 0)
+  {
+    while (last_physical_bin > 1 && z_axis->GetBinCenter(last_physical_bin) > 0.0)
+    {
+      --last_physical_bin;
+    }
+  }
+  else
+  {
+    while (first_physical_bin < number_of_z_bins &&
+           z_axis->GetBinCenter(first_physical_bin) < 0.0)
+    {
+      ++first_physical_bin;
+    }
+  }
+
+  const double pad_plane_z = side == 0
+                                 ? z_axis->GetBinLowEdge(1)
+                                 : z_axis->GetBinUpEdge(number_of_z_bins);
+  const double central_center = side == 0
+                                    ? z_axis->GetBinCenter(last_physical_bin)
+                                    : z_axis->GetBinCenter(first_physical_bin);
+  const double pad_center = side == 0
+                                ? z_axis->GetBinCenter(first_physical_bin)
+                                : z_axis->GetBinCenter(last_physical_bin);
+
+  // Do not use one side's model deep inside the opposite half-volume.
+  constexpr double central_tolerance_cm = 0.5;
+  if ((side == 0 && z > central_tolerance_cm) ||
+      (side == 1 && z < -central_tolerance_cm))
+  {
+    return false;
+  }
+
+  if ((side == 0 && z <= pad_plane_z) ||
+      (side == 1 && z >= pad_plane_z))
+  {
+    // The physical boundary is exactly zero at the pad plane.
+    return true;
+  }
+
+  double interpolation_z = z;
+  double pad_plane_factor = 1.0;
+
+  // Avoid mixing a side's central-membrane value with the zero-filled bins
+  // belonging to the other half-volume in the exported full-z histogram.
+  if (side == 0 && interpolation_z > central_center)
+  {
+    interpolation_z = central_center;
+  }
+  else if (side == 1 && interpolation_z < central_center)
+  {
+    interpolation_z = central_center;
+  }
+
+  // The ROOT histogram stores bin-center samples.  Extrapolate linearly from
+  // the outermost physical bin center to the exact zero at the pad-plane edge.
+  if (side == 0 && z < pad_center)
+  {
+    pad_plane_factor = (z - pad_plane_z) /
+                       std::max(pad_center - pad_plane_z, 1.0e-12);
+    interpolation_z = pad_center;
+  }
+  else if (side == 1 && z > pad_center)
+  {
+    pad_plane_factor = (pad_plane_z - z) /
+                       std::max(pad_plane_z - pad_center, 1.0e-12);
+    interpolation_z = pad_center;
+  }
+  pad_plane_factor = std::clamp(pad_plane_factor, 0.0, 1.0);
+
+  const double delta_r = pad_plane_factor *
+                         interpolate_histogram(m_spatial_delta_r[side], r, phi,
+                                               interpolation_z);
+  const double rdelta_phi = pad_plane_factor *
+                            interpolate_histogram(m_spatial_rdelta_phi[side], r, phi,
+                                                  interpolation_z);
+  const double delta_z = (m_apply_spatial_correction_z && m_spatial_delta_z[side])
+                             ? pad_plane_factor *
+                                   interpolate_histogram(m_spatial_delta_z[side], r, phi,
+                                                         interpolation_z)
+                             : 0.0;
+
+  if (!std::isfinite(delta_r) || !std::isfinite(rdelta_phi) ||
+      !std::isfinite(delta_z))
+  {
+    return false;
+  }
+
+  correction = {delta_r, rdelta_phi, delta_z};
+  return true;
+}
+
+unsigned int TpcV0CandidateTree::apply_spatial_correction(
+    std::vector<TruthPoint> &points,
+    const int side) const
+{
+  if (!m_apply_spatial_correction)
+  {
+    return 0;
+  }
+
+  unsigned int corrected_points = 0;
+  for (auto &point : points)
+  {
+    ++m_counter_spatial_points_seen;
+
+    const double radius = std::hypot(point.position.x, point.position.y);
+    const double phi = std::atan2(point.position.y, point.position.x);
+    const int point_side = (side == 0 || side == 1)
+                               ? side
+                               : (point.position.z < 0.0 ? 0 : 1);
+
+    Vec3 map_value;
+    if (!evaluate_spatial_correction(point_side, radius, phi,
+                                     point.position.z, map_value))
+    {
+      ++m_counter_spatial_points_outside;
+      continue;
+    }
+
+    const double scaled_delta_r = m_spatial_correction_scale * map_value.x;
+    const double scaled_rdelta_phi = m_spatial_correction_scale * map_value.y;
+    const double scaled_delta_z = m_spatial_correction_scale * map_value.z;
+
+    const double corrected_radius = radius - scaled_delta_r;
+    if (!std::isfinite(corrected_radius) || corrected_radius <= 0.0)
+    {
+      ++m_counter_spatial_points_invalid;
+      continue;
+    }
+
+    const double corrected_phi = phi - scaled_rdelta_phi / radius;
+    const double corrected_z = point.position.z - scaled_delta_z;
+    const Vec3 corrected_position{corrected_radius * std::cos(corrected_phi),
+                                  corrected_radius * std::sin(corrected_phi),
+                                  corrected_z};
+    if (!finite(corrected_position))
+    {
+      ++m_counter_spatial_points_invalid;
+      continue;
+    }
+
+    point.position = corrected_position;
+    ++corrected_points;
+    ++m_counter_spatial_points_corrected;
+  }
+  return corrected_points;
+}
+
 int TpcV0CandidateTree::Init(PHCompositeNode *topNode)
 {
+  if (!load_spatial_correction_map())
+  {
+    return Fun4AllReturnCodes::ABORTRUN;
+  }
+
   if (m_use_kalman_field_map && m_kalman_config.magnetic_field == nullptr && topNode != nullptr)
   {
     m_kalman_config.magnetic_field =
@@ -233,6 +642,7 @@ int TpcV0CandidateTree::Init(PHCompositeNode *topNode)
   if (!m_file || m_file->IsZombie())
   {
     std::cout << Name() << ": failed to create output file " << m_filename << std::endl;
+    close_spatial_correction_map();
     return Fun4AllReturnCodes::ABORTRUN;
   }
 
@@ -462,6 +872,18 @@ int TpcV0CandidateTree::End(PHCompositeNode * /*topNode*/)
   if (m_file)
   {
     m_file->cd();
+    TNamed spatial_file_metadata("spatial_correction_file",
+                                 m_spatial_correction_filename.c_str());
+    spatial_file_metadata.Write();
+    TNamed spatial_status_metadata("spatial_correction_status",
+                                   (std::string("enabled=") +
+                                    (m_apply_spatial_correction ? "1" : "0") +
+                                    ";apply_z=" +
+                                    (m_apply_spatial_correction_z ? "1" : "0") +
+                                    ";scale=" +
+                                    std::to_string(m_spatial_correction_scale))
+                                       .c_str());
+    spatial_status_metadata.Write();
     if (m_pair_tree)
     {
       m_pair_tree->Write();
@@ -479,6 +901,8 @@ int TpcV0CandidateTree::End(PHCompositeNode * /*topNode*/)
     m_file = nullptr;
   }
 
+  close_spatial_correction_map();
+
   if (Verbosity() > 0)
   {
     std::cout << Name() << ": pair counters: raw=" << m_counter_raw_pairs
@@ -492,6 +916,10 @@ int TpcV0CandidateTree::End(PHCompositeNode * /*topNode*/)
               << " tracks_written=" << m_counter_tracks_written
               << " reject_helix_anchor=" << m_counter_reject_helix_anchor
               << " cluster_residuals_written=" << m_counter_cluster_residuals_written
+              << " spatial_points_seen=" << m_counter_spatial_points_seen
+              << " spatial_points_corrected=" << m_counter_spatial_points_corrected
+              << " spatial_points_outside=" << m_counter_spatial_points_outside
+              << " spatial_points_invalid=" << m_counter_spatial_points_invalid
               << std::endl;
   }
 
@@ -610,6 +1038,13 @@ std::map<int, TpcV0CandidateTree::Tracklet> TpcV0CandidateTree::build_tracklets(
     if (!tracklet.points.empty())
     {
       tracklet.side = tracklet.points.front().position.z < 0.0 ? 0 : 1;
+    }
+
+    tracklet.spatial_correction_points =
+        apply_spatial_correction(tracklet.points, tracklet.side);
+    if (tracklet.spatial_correction_points > 0)
+    {
+      order_track_points(tracklet.points, m_point_order);
     }
 
     if (tracklet.npoints < m_min_points)
@@ -810,6 +1245,8 @@ std::map<int, TpcV0CandidateTree::Tracklet> TpcV0CandidateTree::build_pattern_tr
 bool TpcV0CandidateTree::finalize_pattern_tracklet(Tracklet &tracklet,
                                                    const bool has_upstream_state) const
 {
+  tracklet.spatial_correction_points =
+      apply_spatial_correction(tracklet.points, tracklet.side);
   order_track_points(tracklet.points, m_point_order);
   tracklet.npoints = static_cast<int>(tracklet.points.size());
   if (tracklet.npoints < m_min_points || tracklet.charge == 0)
@@ -1621,6 +2058,17 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
           : Vec3{nan, nan, nan};
 
   reset_pair_row();
+  m_pair.spatial_correction_applied =
+      (track1.spatial_correction_points > 0 ||
+       track2.spatial_correction_points > 0)
+          ? 1
+          : 0;
+  m_pair.spatial_correction_z_applied =
+      (m_pair.spatial_correction_applied && m_apply_spatial_correction_z) ? 1 : 0;
+  m_pair.spatial_correction_scale =
+      m_pair.spatial_correction_applied
+          ? static_cast<float>(m_spatial_correction_scale)
+          : 0.0F;
   m_pair.run = run_number;
   m_pair.evt = event_number;
   m_pair.cross1 = 0;
@@ -2247,6 +2695,15 @@ void TpcV0CandidateTree::fill_track_row(const Tracklet &tracklet,
   m_track.has_helix = tracklet.has_helix ? 1 : 0;
   m_track.has_kalman = tracklet.has_kalman ? 1 : 0;
   m_track.is_primary = tracklet.is_primary;
+  m_track.spatial_correction_applied =
+      tracklet.spatial_correction_points > 0 ? 1 : 0;
+  m_track.spatial_correction_z_applied =
+      (m_track.spatial_correction_applied && m_apply_spatial_correction_z) ? 1 : 0;
+  m_track.spatial_correction_points = tracklet.spatial_correction_points;
+  m_track.spatial_correction_scale =
+      m_track.spatial_correction_applied
+          ? static_cast<float>(m_spatial_correction_scale)
+          : 0.0F;
 
   if (m_kalman_config.collect_innovation_components)
   {
@@ -2885,6 +3342,12 @@ void TpcV0CandidateTree::create_branches()
   m_pair_tree->Branch("evt", &m_pair.evt, "evt/I");
   m_pair_tree->Branch("cross1", &m_pair.cross1, "cross1/S");
   m_pair_tree->Branch("cross2", &m_pair.cross2, "cross2/S");
+  m_pair_tree->Branch("spatial_correction_applied", &m_pair.spatial_correction_applied,
+                      "spatial_correction_applied/I");
+  m_pair_tree->Branch("spatial_correction_z_applied", &m_pair.spatial_correction_z_applied,
+                      "spatial_correction_z_applied/I");
+  m_pair_tree->Branch("spatial_correction_scale", &m_pair.spatial_correction_scale,
+                      "spatial_correction_scale/F");
   m_pair_tree->Branch("px1", &m_pair.px1, "px1/F");
   m_pair_tree->Branch("py1", &m_pair.py1, "py1/F");
   m_pair_tree->Branch("pz1", &m_pair.pz1, "pz1/F");
@@ -3014,6 +3477,14 @@ void TpcV0CandidateTree::create_branches()
   m_track_tree->Branch("has_helix", &m_track.has_helix, "has_helix/I");
   m_track_tree->Branch("has_kalman", &m_track.has_kalman, "has_kalman/I");
   m_track_tree->Branch("is_primary", &m_track.is_primary, "is_primary/I");
+  m_track_tree->Branch("spatial_correction_applied", &m_track.spatial_correction_applied,
+                       "spatial_correction_applied/I");
+  m_track_tree->Branch("spatial_correction_z_applied", &m_track.spatial_correction_z_applied,
+                       "spatial_correction_z_applied/I");
+  m_track_tree->Branch("spatial_correction_points", &m_track.spatial_correction_points,
+                       "spatial_correction_points/i");
+  m_track_tree->Branch("spatial_correction_scale", &m_track.spatial_correction_scale,
+                       "spatial_correction_scale/F");
   m_track_tree->Branch("px", &m_track.px, "px/D");
   m_track_tree->Branch("py", &m_track.py, "py/D");
   m_track_tree->Branch("pz", &m_track.pz, "pz/D");

@@ -47,7 +47,11 @@ int Fun4All_TpcV0CandidateTree(
     const std::string &input_list = "input.list",
     const std::string &output_file = "TpcV0Candidates.root",
     const int nEvents = 0,
-    const int skipEvents = 0)
+    const int skipEvents = 0,
+    const bool apply_spatial_correction = true,
+    const std::string &spatial_correction_file = "/sphenix/user/mitrankov/novel/coresoftware_TrackingDiagnostics/work/input/v0_spatial_map_transverse_only.root",
+    const bool apply_spatial_correction_z = false,
+    const double spatial_correction_scale = 1.0)
 {
 
   auto *se = Fun4AllServer::instance();
@@ -67,6 +71,36 @@ int Fun4All_TpcV0CandidateTree(
       env_double("V0_BEAM_X", 0.158),
       env_double("V0_BEAM_Y", 0.285),
       env_double("V0_BEAM_Z", 0.0));
+
+  // Optional residual spatial map applied to cluster coordinates before any
+  // Kalman/helix fit.  Function arguments provide convenient interactive use;
+  // the environment variables below override them for batch jobs.
+  const bool use_spatial_correction =
+      env_bool("V0_APPLY_SPATIAL_CORRECTION", apply_spatial_correction);
+  const std::string spatial_map_file =
+      env_string("V0_SPATIAL_CORRECTION_FILE", spatial_correction_file);
+  const bool use_spatial_correction_z =
+      env_bool("V0_APPLY_SPATIAL_CORRECTION_Z", apply_spatial_correction_z);
+  const double spatial_map_scale =
+      env_double("V0_SPATIAL_CORRECTION_SCALE", spatial_correction_scale);
+
+  v0->set_apply_spatial_correction(use_spatial_correction);
+  v0->set_spatial_correction_file(spatial_map_file);
+  v0->set_apply_spatial_correction_z(use_spatial_correction_z);
+  v0->set_spatial_correction_scale(spatial_map_scale);
+
+  if (use_spatial_correction)
+  {
+    std::cout << "V0 spatial correction: ON"
+              << " file=" << spatial_map_file
+              << " apply_z=" << (use_spatial_correction_z ? 1 : 0)
+              << " scale=" << spatial_map_scale
+              << std::endl;
+  }
+  else
+  {
+    std::cout << "V0 spatial correction: OFF" << std::endl;
+  }
 
   const std::string fit_mode = env_string("V0_FIT_MODE", "kalman");
   if (!v0->set_track_fit_method(fit_mode))
@@ -253,3 +287,4 @@ int Fun4All_TpcV0CandidateTree(
 }
 
 #endif
+

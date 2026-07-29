@@ -18,6 +18,7 @@ class PHG4Hit;
 class PHG4HitContainer;
 class PHG4TruthInfoContainer;
 class TFile;
+class TH3;
 class TTree;
 class Tpc_PolyClusterContainer;
 class Tpc_PolyTrackContainer;
@@ -43,6 +44,29 @@ class TpcV0CandidateTree : public SubsysReco
   void use_pattern_cluster_tracks(const bool value = true) { m_use_pattern_cluster_tracks = value; }
   void set_use_truth_primary_vertex(const bool value) { m_use_truth_primary_vertex = value; }
   void set_primary_vertex(const double x, const double y, const double z);
+
+  // Optional cluster-position correction applied before the track fit.
+  // The ROOT file must contain:
+  //   side0/h3_delta_r, side0/h3_rdelta_phi, side0/h3_delta_z
+  //   side1/h3_delta_r, side1/h3_rdelta_phi, side1/h3_delta_z
+  // with axes (r [cm], phi, z [cm]).  The map convention is
+  // measured-minus-fit, so corrected coordinates are measured - map.
+  void set_apply_spatial_correction(const bool value = true)
+  {
+    m_apply_spatial_correction = value;
+  }
+  void set_spatial_correction_file(const std::string &filename)
+  {
+    m_spatial_correction_filename = filename;
+  }
+  void set_spatial_correction_scale(const double value)
+  {
+    m_spatial_correction_scale = value;
+  }
+  void set_apply_spatial_correction_z(const bool value = true)
+  {
+    m_apply_spatial_correction_z = value;
+  }
 
   void set_min_points(const int value) { m_min_points = value; }
   void set_fit_helix(const bool value)
@@ -311,6 +335,7 @@ class TpcV0CandidateTree : public SubsysReco
     Vec3 pattern_vertex;
     double pattern_vertex_z_rms{0.0};
     unsigned int pattern_vertex_ntracks{0};
+    unsigned int spatial_correction_points{0};
   };
 
   struct KalmanPca
@@ -406,6 +431,10 @@ class TpcV0CandidateTree : public SubsysReco
     int evt{0};
     short cross1{0};
     short cross2{0};
+
+    int spatial_correction_applied{0};
+    int spatial_correction_z_applied{0};
+    float spatial_correction_scale{0.0F};
 
     float px1{0.0F};
     float py1{0.0F};
@@ -550,6 +579,10 @@ class TpcV0CandidateTree : public SubsysReco
     int has_helix{0};
     int has_kalman{0};
     int is_primary{0};
+    int spatial_correction_applied{0};
+    int spatial_correction_z_applied{0};
+    unsigned int spatial_correction_points{0};
+    float spatial_correction_scale{0.0F};
 
     double px{0.0};
     double py{0.0};
@@ -726,6 +759,13 @@ class TpcV0CandidateTree : public SubsysReco
   void reset_cluster_residual_row();
   void create_branches();
 
+  bool load_spatial_correction_map();
+  void close_spatial_correction_map();
+  unsigned int apply_spatial_correction(std::vector<TruthPoint> &points,
+                                        int side) const;
+  bool evaluate_spatial_correction(int side, double r, double phi, double z,
+                                   Vec3 &correction) const;
+
   static int pdg_charge(int pid);
   static bool parse_point_order(const std::string &mode, PointOrder &order);
   static float quiet_nan();
@@ -843,6 +883,15 @@ class TpcV0CandidateTree : public SubsysReco
   std::string m_tpc_sa_track_vertex_node{"TPC_POLYTRACKVERTICES"};
   bool m_use_pattern_cluster_tracks{false};
 
+  bool m_apply_spatial_correction{false};
+  bool m_apply_spatial_correction_z{false};
+  double m_spatial_correction_scale{1.0};
+  std::string m_spatial_correction_filename;
+  TFile *m_spatial_correction_file{nullptr};
+  TH3 *m_spatial_delta_r[2]{nullptr, nullptr};
+  TH3 *m_spatial_rdelta_phi[2]{nullptr, nullptr};
+  TH3 *m_spatial_delta_z[2]{nullptr, nullptr};
+
   TFile *m_file{nullptr};
   TTree *m_pair_tree{nullptr};
   TTree *m_track_tree{nullptr};
@@ -931,6 +980,10 @@ class TpcV0CandidateTree : public SubsysReco
   std::uint64_t m_counter_written{0};
   std::uint64_t m_counter_tracks_written{0};
   std::uint64_t m_counter_cluster_residuals_written{0};
+  mutable std::uint64_t m_counter_spatial_points_seen{0};
+  mutable std::uint64_t m_counter_spatial_points_corrected{0};
+  mutable std::uint64_t m_counter_spatial_points_outside{0};
+  mutable std::uint64_t m_counter_spatial_points_invalid{0};
   mutable std::uint64_t m_counter_reject_helix_anchor{0};
   std::uint64_t m_timing_events{0};
   mutable std::uint64_t m_timing_kalman_fits{0};
