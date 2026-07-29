@@ -115,8 +115,8 @@ int Fun4All_TpcV0CandidateTree(
       env_double("V0_TRANSITION_SIGMA_Z", 0.200));
   v0->set_exclude_tpc_transition_layers(env_bool("V0_EXCLUDE_TRANSITION_LAYERS", true));
 
-  // Fast common preselection. Keep this loose because it is evaluated before
-  // the refined helix/Kalman pair PCA.
+  // Fast common track-only preselection. Pair-level rough line PCA cuts stay
+  // disabled so prompt pairs always reach the primary-PCA reconstruction.
   v0->set_pre_track_pt_min(env_double("V0_PRE_TRACK_PT_MIN", 0.20));
   v0->set_pre_track_dca_xy_min(env_double("V0_PRE_TRACK_DCA_XY_MIN", -1.0));
   v0->set_pre_track_dca_z_min(env_double("V0_PRE_TRACK_DCA_Z_MIN", -1.0));
@@ -127,7 +127,6 @@ int Fun4All_TpcV0CandidateTree(
   v0->set_pre_cos_theta_min(env_double("V0_PRE_COSTHETA_MIN", -2.0));
   v0->set_pre_track_quality_max(env_double("V0_PRE_TRACK_QUALITY_MAX", -1.0));
   v0->set_pre_track_npoints_min(env_int("V0_PRE_TRACK_NPOINTS_MIN", 20));
-  v0->set_pair_pca_z_max(env_double("V0_PAIR_PCA_Z_MAX", 20.0));
 
   // K0S -> pi+ pi-. These defaults reproduce the cuts you specified.
   v0->set_kshort_selection(
@@ -174,7 +173,8 @@ int Fun4All_TpcV0CandidateTree(
       env_double("V0_ANTILAMBDA_PAIR_DCA_MAX", 3.0),
       env_double("V0_ANTILAMBDA_DIRA_MIN", 0.75));
 
-  // Prompt phi -> K+K-. No secondary-vertex DIRA/decay-radius cut.
+  // Prompt phi -> K+K-. Keep reconstruction cuts loose; the QA macro scans
+  // the strongest same-collision variable |primary_pca1_z-primary_pca2_z|.
   v0->set_phi_selection(
     env_bool("V0_ENABLE_PHI", true),
     env_int("V0_PHI_MIN_TPC_CLUSTERS", 20),
@@ -186,7 +186,7 @@ int Fun4All_TpcV0CandidateTree(
     env_double("V0_PHI_PAIR_DCA_MAX", -1.0),
     env_double("V0_PHI_FLIGHT_LENGTH_MAX", -1.0),
     env_double("V0_PHI_PRIMARY_PCA_Z_MAX", 20.0),
-    env_double("V0_PHI_PRIMARY_PCA_DZ_MAX", 1.0)
+    env_double("V0_PHI_PRIMARY_PCA_DZ_MAX", 2.0)
   );
 
   // Prompt D0 -> K- pi+ and anti-D0 -> K+ pi-.
@@ -218,9 +218,7 @@ int Fun4All_TpcV0CandidateTree(
     env_double("V0_ANTID0_PRIMARY_PCA_DZ_MAX", 2.0));
 
   // Full daughter cluster payload remains K0S-only.
-  v0->set_pair_pca_z_max(env_double("V0_PAIR_PCA_Z_MAX", 20.0));
   v0->set_write_same_sign_pairs(env_bool("V0_WRITE_SAME_SIGN", true));
-  //v0->set_use_primary_vertex_kinematics(env_bool("V0_USE_PRIMARY_VERTEX_KINEMATICS", false));
   v0->set_write_track_tree(env_bool("V0_WRITE_TRACK_TREE", false));
   v0->set_write_cluster_residual_tree(env_bool("V0_WRITE_CLUSTER_RESIDUAL_TREE", false));
   v0->set_write_kalman_innovation_diagnostics(env_bool("V0_WRITE_KALMAN_DIAGNOSTICS", true));
@@ -229,8 +227,6 @@ int Fun4All_TpcV0CandidateTree(
       env_double("V0_KSHORT_DETAIL_MASS_MIN", 0.40),
       env_double("V0_KSHORT_DETAIL_MASS_MAX", 0.60));
   v0->set_print_timing(env_bool("V0_PRINT_TIMING", false));
-  v0->set_use_primary_vertex_kinematics(false);
-  v0->set_write_same_sign_pairs(true);
 
   se->registerSubsystem(v0);
 
@@ -257,4 +253,3 @@ int Fun4All_TpcV0CandidateTree(
 }
 
 #endif
-

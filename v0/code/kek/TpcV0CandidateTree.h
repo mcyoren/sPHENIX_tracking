@@ -428,6 +428,29 @@ class TpcV0CandidateTree : public SubsysReco
     float primary_pair_pz{0.0F};
     float primary_pair_pt{0.0F};
 
+    // Independent daughter PCAs to the configured beam axis.
+    float primary_pca1_x{0.0F};
+    float primary_pca1_y{0.0F};
+    float primary_pca1_z{0.0F};
+    float primary_pca2_x{0.0F};
+    float primary_pca2_y{0.0F};
+    float primary_pca2_z{0.0F};
+    float primary_pca_dz{0.0F};
+    int primary_pca_valid{0};
+
+    // Local two-track PCA seeded around the two beam-axis PCAs.
+    float prompt_pca_x{0.0F};
+    float prompt_pca_y{0.0F};
+    float prompt_pca_z{0.0F};
+    float prompt_pca1_x{0.0F};
+    float prompt_pca1_y{0.0F};
+    float prompt_pca1_z{0.0F};
+    float prompt_pca2_x{0.0F};
+    float prompt_pca2_y{0.0F};
+    float prompt_pca2_z{0.0F};
+    float prompt_pairDCA{0.0F};
+    int prompt_pca_valid{0};
+
     float dca_xy1{0.0F};
     float dca_z1{0.0F};
     float dca_xy2{0.0F};
@@ -503,6 +526,8 @@ class TpcV0CandidateTree : public SubsysReco
     int kalman_ndof2{0};
     short npoints1{0};
     short npoints2{0};
+    unsigned int ntpc_clusters1{0};
+    unsigned int ntpc_clusters2{0};
 
     int has_kshort_daughter_details{0};
     DaughterDetailRow daughter1;
@@ -802,6 +827,8 @@ class TpcV0CandidateTree : public SubsysReco
                                 const Vec3 &primary_vertex,
                                 const Vec3 &primary_pca1,
                                 const Vec3 &primary_pca2,
+                                const Vec3 &primary_mom1,
+                                const Vec3 &primary_mom2,
                                 bool have_primary_pair,
                                 const std::pair<double, double> &dca1,
                                 const std::pair<double, double> &dca2,

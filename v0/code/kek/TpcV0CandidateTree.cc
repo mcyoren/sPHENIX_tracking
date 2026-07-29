@@ -1330,46 +1330,31 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
               norm(prompt_mom1) > 0.0 &&
               norm(prompt_mom2) > 0.0;
         }
-
-        //if (have_prompt_pca)
-        //{
-        //  // Include the prompt-seeded candidate so a valid prompt pair can
-        //  // survive even when the ordinary coarse search missed this minimum.
-        //  candidates.push_back(prompt_pca);
-//
-        //  std::sort(
-        //      candidates.begin(),
-        //      candidates.end(),
-        //      [](const KalmanPca &lhs,
-        //         const KalmanPca &rhs)
-        //      {
-        //        return lhs.dca < rhs.dca;
-        //      });
-        //}
       }
     }
 
     if (candidates.empty())
     {
-      // The global secondary PCA failed. A valid prompt-local PCA may still
-      // allow phi/D0/anti-D0 to survive.
-      if (!have_prompt_pca)
+      // The global secondary PCA failed. Prompt candidates are still allowed
+      // when both tracks have valid independent beam-axis PCAs.
+      if (!have_primary_pair)
       {
         ++m_counter_reject_pca;
         return false;
       }
 
-      // Use prompt quantities only to keep the common output-row construction
-      // finite. Secondary species will explicitly be disabled below.
-      pca1 = prompt_pca1;
-      pca2 = prompt_pca2;
-      pair_dca = prompt_pair_dca;
+      // Keep common output quantities finite. Prefer the local prompt-pair PCA
+      // when it exists; otherwise fall back to the two independent beam-axis
+      // PCA points. Secondary species remain disabled by have_secondary_pca.
+      pca1 = have_prompt_pca ? prompt_pca1 : primary_pca1;
+      pca2 = have_prompt_pca ? prompt_pca2 : primary_pca2;
+      pair_dca = have_prompt_pca ? prompt_pair_dca : nan;
 
-      theta1 = prompt_pca.s1;
-      theta2 = prompt_pca.s2;
+      theta1 = have_prompt_pca ? prompt_pca.s1 : primary_path1;
+      theta2 = have_prompt_pca ? prompt_pca.s2 : primary_path2;
 
-      mom1 = prompt_mom1;
-      mom2 = prompt_mom2;
+      mom1 = have_prompt_pca ? prompt_mom1 : primary_mom1;
+      mom2 = have_prompt_pca ? prompt_mom2 : primary_mom2;
 
       dca1 = track1.has_vertex_dca
                  ? track1.vertex_dca
@@ -1560,29 +1545,6 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
   const Vec3 secondary_mom2 = mom2;
   const Vec3 secondary_total_mom = add(secondary_mom1, secondary_mom2);
 
-  /////// Independently evaluate each daughter at its transverse PCA to the fixed
-  /////// primary vertex. These are stored for prompt phi/D0 analysis.
-  /////const double nan = quiet_nan();
-  /////Vec3 primary_pca1{nan, nan, nan};
-  /////Vec3 primary_pca2{nan, nan, nan};
-  /////Vec3 primary_mom1{nan, nan, nan};
-  /////Vec3 primary_mom2{nan, nan, nan};
-  /////double primary_dca_xy1 = nan;
-  /////double primary_dca_xy2 = nan;
-/////
-  /////const bool have_primary1 =
-  /////    track_pca_to_xy(track1, primary_vertex,
-  /////                    primary_pca1, primary_dca_xy1, &primary_mom1) &&
-  /////    finite(primary_mom1) && norm(primary_mom1) > 0.0;
-  /////const bool have_primary2 =
-  /////    track_pca_to_xy(track2, primary_vertex,
-  /////                    primary_pca2, primary_dca_xy2, &primary_mom2) &&
-  /////    finite(primary_mom2) && norm(primary_mom2) > 0.0;
-  /////const bool have_primary_pair = have_primary1 && have_primary2;
-  /////const Vec3 primary_total_mom =
-  /////    have_primary_pair ? add(primary_mom1, primary_mom2)
-  /////                      : Vec3{nan, nan, nan};
-
   const Vec3 total_mom = secondary_total_mom;
   const Vec3 flight =
       subtract(pair_vertex, primary_vertex);
@@ -1644,18 +1606,18 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
 
   const Vec3 positive_mom = (track1.charge > 0) ? secondary_mom1 : secondary_mom2;
   const Vec3 negative_mom = (track1.charge > 0) ? secondary_mom2 : secondary_mom1;
-  const Vec3 prompt_positive_mom =
-      have_prompt_pca
+  const Vec3 primary_positive_mom =
+      have_primary_pair
           ? ((track1.charge > 0)
-                 ? prompt_mom1
-                 : prompt_mom2)
+                 ? primary_mom1
+                 : primary_mom2)
           : Vec3{nan, nan, nan};
 
-  const Vec3 prompt_negative_mom =
-      have_prompt_pca
+  const Vec3 primary_negative_mom =
+      have_primary_pair
           ? ((track1.charge > 0)
-                 ? prompt_mom2
-                 : prompt_mom1)
+                 ? primary_mom2
+                 : primary_mom1)
           : Vec3{nan, nan, nan};
 
   reset_pair_row();
@@ -1690,6 +1652,31 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
     m_pair.primary_pair_py = static_cast<float>(primary_total_mom.y);
     m_pair.primary_pair_pz = static_cast<float>(primary_total_mom.z);
     m_pair.primary_pair_pt = static_cast<float>(pt(primary_total_mom));
+
+    m_pair.primary_pca1_x = static_cast<float>(primary_pca1.x);
+    m_pair.primary_pca1_y = static_cast<float>(primary_pca1.y);
+    m_pair.primary_pca1_z = static_cast<float>(primary_pca1.z);
+    m_pair.primary_pca2_x = static_cast<float>(primary_pca2.x);
+    m_pair.primary_pca2_y = static_cast<float>(primary_pca2.y);
+    m_pair.primary_pca2_z = static_cast<float>(primary_pca2.z);
+    m_pair.primary_pca_dz =
+        static_cast<float>(std::abs(primary_pca1.z - primary_pca2.z));
+    m_pair.primary_pca_valid = 1;
+  }
+
+  if (have_prompt_pca)
+  {
+    m_pair.prompt_pca_x = static_cast<float>(prompt_pair_vertex.x);
+    m_pair.prompt_pca_y = static_cast<float>(prompt_pair_vertex.y);
+    m_pair.prompt_pca_z = static_cast<float>(prompt_pair_vertex.z);
+    m_pair.prompt_pca1_x = static_cast<float>(prompt_pca1.x);
+    m_pair.prompt_pca1_y = static_cast<float>(prompt_pca1.y);
+    m_pair.prompt_pca1_z = static_cast<float>(prompt_pca1.z);
+    m_pair.prompt_pca2_x = static_cast<float>(prompt_pca2.x);
+    m_pair.prompt_pca2_y = static_cast<float>(prompt_pca2.y);
+    m_pair.prompt_pca2_z = static_cast<float>(prompt_pca2.z);
+    m_pair.prompt_pairDCA = static_cast<float>(prompt_pair_dca);
+    m_pair.prompt_pca_valid = 1;
   }
 
   m_pair.dca_xy1 = static_cast<float>(dca1.first);
@@ -1730,98 +1717,120 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
       invariant_mass(positive_mom, kPionMass,
                      negative_mom, kProtonMass));
 
-  if (have_prompt_pca)
+  if (have_primary_pair)
   {
+    // Prompt invariant masses use the momenta at each daughter's independent
+    // transverse PCA to the configured beam axis.
     m_pair.mass_Phi = static_cast<float>(
         invariant_mass(
-            prompt_mom1,
+            primary_mom1,
             kKaonMass,
-            prompt_mom2,
+            primary_mom2,
             kKaonMass));
 
     m_pair.mass_D0 = static_cast<float>(
         invariant_mass(
-            prompt_negative_mom,
+            primary_negative_mom,
             kKaonMass,
-            prompt_positive_mom,
+            primary_positive_mom,
             kPionMass));
 
     m_pair.mass_AntiD0 = static_cast<float>(
         invariant_mass(
-            prompt_positive_mom,
+            primary_positive_mom,
             kKaonMass,
-            prompt_negative_mom,
+            primary_negative_mom,
             kPionMass));
   }
 
+  const Vec3 prompt_selection_pca1 =
+      have_prompt_pca ? prompt_pca1 : primary_pca1;
+  const Vec3 prompt_selection_pca2 =
+      have_prompt_pca ? prompt_pca2 : primary_pca2;
+  const Vec3 prompt_selection_vertex =
+      have_prompt_pca
+          ? prompt_pair_vertex
+          : scale(add(primary_pca1, primary_pca2), 0.5);
+  const double prompt_selection_pair_dca =
+      have_prompt_pca ? prompt_pair_dca : nan;
+
   const bool pass_kshort = have_secondary_pca && passes_species_selection(
       m_kshort_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
-      primary_pca1, primary_pca2, have_primary_pair,
+      primary_pca1, primary_pca2, primary_mom1, primary_mom2,
+      have_primary_pair,
       dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_Kshort, true);
   const bool pass_lambda = have_secondary_pca && passes_species_selection(
       m_lambda_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
-      primary_pca1, primary_pca2, have_primary_pair,
+      primary_pca1, primary_pca2, primary_mom1, primary_mom2,
+      have_primary_pair,
       dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_Lambda, true);
   const bool pass_antilambda = have_secondary_pca && passes_species_selection(
       m_antilambda_cuts, track1, track2, pca1, pca2, pair_vertex, primary_vertex,
-      primary_pca1, primary_pca2, have_primary_pair,
+      primary_pca1, primary_pca2, primary_mom1, primary_mom2,
+      have_primary_pair,
       dca1, dca2, pair_dca, cos_theta, alpha, m_pair.mass_AntiLambda, true);
   const bool pass_phi =
-      have_prompt_pca &&
+      have_primary_pair &&
       passes_species_selection(
           m_phi_cuts,
           track1,
           track2,
-          prompt_pca1,
-          prompt_pca2,
-          prompt_pair_vertex,
+          prompt_selection_pca1,
+          prompt_selection_pca2,
+          prompt_selection_vertex,
           primary_vertex,
           primary_pca1,
           primary_pca2,
+          primary_mom1,
+          primary_mom2,
           have_primary_pair,
           dca1,
           dca2,
-          prompt_pair_dca,
+          prompt_selection_pair_dca,
           nan,
           nan,
           m_pair.mass_Phi,
           false);
   const bool pass_d0 =
-      have_prompt_pca &&
+      have_primary_pair &&
       passes_species_selection(
           m_d0_cuts,
           track1,
           track2,
-          prompt_pca1,
-          prompt_pca2,
-          prompt_pair_vertex,
+          prompt_selection_pca1,
+          prompt_selection_pca2,
+          prompt_selection_vertex,
           primary_vertex,
           primary_pca1,
           primary_pca2,
+          primary_mom1,
+          primary_mom2,
           have_primary_pair,
           dca1,
           dca2,
-          prompt_pair_dca,
+          prompt_selection_pair_dca,
           nan,
           nan,
           m_pair.mass_D0,
           false);
   const bool pass_antid0 =
-      have_prompt_pca &&
+      have_primary_pair &&
       passes_species_selection(
           m_antid0_cuts,
           track1,
           track2,
-          prompt_pca1,
-          prompt_pca2,
-          prompt_pair_vertex,
+          prompt_selection_pca1,
+          prompt_selection_pca2,
+          prompt_selection_vertex,
           primary_vertex,
           primary_pca1,
           primary_pca2,
+          primary_mom1,
+          primary_mom2,
           have_primary_pair,
           dca1,
           dca2,
-          prompt_pair_dca,
+          prompt_selection_pair_dca,
           nan,
           nan,
           m_pair.mass_AntiD0,
@@ -1908,6 +1917,8 @@ bool TpcV0CandidateTree::make_pair_row(const Tracklet &track1, const Tracklet &t
   m_pair.parent_pid = (track1.parent_id != 0 && track1.parent_id == track2.parent_id) ? track1.parent_pid : 0;
   m_pair.npoints1 = static_cast<short>(track1.npoints);
   m_pair.npoints2 = static_cast<short>(track2.npoints);
+  m_pair.ntpc_clusters1 = track1.ntpc_clusters;
+  m_pair.ntpc_clusters2 = track2.ntpc_clusters;
 
   const bool keep_kshort_details =
       m_write_kshort_daughter_details && pass_kshort &&
@@ -2698,6 +2709,25 @@ void TpcV0CandidateTree::reset_pair_row()
   m_pair.primary_pair_py = nan;
   m_pair.primary_pair_pz = nan;
   m_pair.primary_pair_pt = nan;
+  m_pair.primary_pca1_x = nan;
+  m_pair.primary_pca1_y = nan;
+  m_pair.primary_pca1_z = nan;
+  m_pair.primary_pca2_x = nan;
+  m_pair.primary_pca2_y = nan;
+  m_pair.primary_pca2_z = nan;
+  m_pair.primary_pca_dz = nan;
+  m_pair.primary_pca_valid = 0;
+  m_pair.prompt_pca_x = nan;
+  m_pair.prompt_pca_y = nan;
+  m_pair.prompt_pca_z = nan;
+  m_pair.prompt_pca1_x = nan;
+  m_pair.prompt_pca1_y = nan;
+  m_pair.prompt_pca1_z = nan;
+  m_pair.prompt_pca2_x = nan;
+  m_pair.prompt_pca2_y = nan;
+  m_pair.prompt_pca2_z = nan;
+  m_pair.prompt_pairDCA = nan;
+  m_pair.prompt_pca_valid = 0;
   m_pair.dca_xy1 = nan;
   m_pair.dca_z1 = nan;
   m_pair.dca_xy2 = nan;
@@ -2873,6 +2903,25 @@ void TpcV0CandidateTree::create_branches()
   m_pair_tree->Branch("primary_pair_py", &m_pair.primary_pair_py, "primary_pair_py/F");
   m_pair_tree->Branch("primary_pair_pz", &m_pair.primary_pair_pz, "primary_pair_pz/F");
   m_pair_tree->Branch("primary_pair_pt", &m_pair.primary_pair_pt, "primary_pair_pt/F");
+  m_pair_tree->Branch("primary_pca1_x", &m_pair.primary_pca1_x, "primary_pca1_x/F");
+  m_pair_tree->Branch("primary_pca1_y", &m_pair.primary_pca1_y, "primary_pca1_y/F");
+  m_pair_tree->Branch("primary_pca1_z", &m_pair.primary_pca1_z, "primary_pca1_z/F");
+  m_pair_tree->Branch("primary_pca2_x", &m_pair.primary_pca2_x, "primary_pca2_x/F");
+  m_pair_tree->Branch("primary_pca2_y", &m_pair.primary_pca2_y, "primary_pca2_y/F");
+  m_pair_tree->Branch("primary_pca2_z", &m_pair.primary_pca2_z, "primary_pca2_z/F");
+  m_pair_tree->Branch("primary_pca_dz", &m_pair.primary_pca_dz, "primary_pca_dz/F");
+  m_pair_tree->Branch("primary_pca_valid", &m_pair.primary_pca_valid, "primary_pca_valid/I");
+  m_pair_tree->Branch("prompt_pca_x", &m_pair.prompt_pca_x, "prompt_pca_x/F");
+  m_pair_tree->Branch("prompt_pca_y", &m_pair.prompt_pca_y, "prompt_pca_y/F");
+  m_pair_tree->Branch("prompt_pca_z", &m_pair.prompt_pca_z, "prompt_pca_z/F");
+  m_pair_tree->Branch("prompt_pca1_x", &m_pair.prompt_pca1_x, "prompt_pca1_x/F");
+  m_pair_tree->Branch("prompt_pca1_y", &m_pair.prompt_pca1_y, "prompt_pca1_y/F");
+  m_pair_tree->Branch("prompt_pca1_z", &m_pair.prompt_pca1_z, "prompt_pca1_z/F");
+  m_pair_tree->Branch("prompt_pca2_x", &m_pair.prompt_pca2_x, "prompt_pca2_x/F");
+  m_pair_tree->Branch("prompt_pca2_y", &m_pair.prompt_pca2_y, "prompt_pca2_y/F");
+  m_pair_tree->Branch("prompt_pca2_z", &m_pair.prompt_pca2_z, "prompt_pca2_z/F");
+  m_pair_tree->Branch("prompt_pairDCA", &m_pair.prompt_pairDCA, "prompt_pairDCA/F");
+  m_pair_tree->Branch("prompt_pca_valid", &m_pair.prompt_pca_valid, "prompt_pca_valid/I");
   m_pair_tree->Branch("dca_xy1", &m_pair.dca_xy1, "dca_xy1/F");
   m_pair_tree->Branch("dca_z1", &m_pair.dca_z1, "dca_z1/F");
   m_pair_tree->Branch("dca_xy2", &m_pair.dca_xy2, "dca_xy2/F");
@@ -2943,6 +2992,8 @@ void TpcV0CandidateTree::create_branches()
   m_pair_tree->Branch("kalman_ndof2", &m_pair.kalman_ndof2, "kalman_ndof2/I");
   m_pair_tree->Branch("npoints1", &m_pair.npoints1, "npoints1/S");
   m_pair_tree->Branch("npoints2", &m_pair.npoints2, "npoints2/S");
+  m_pair_tree->Branch("ntpc_clusters1", &m_pair.ntpc_clusters1, "ntpc_clusters1/i");
+  m_pair_tree->Branch("ntpc_clusters2", &m_pair.ntpc_clusters2, "ntpc_clusters2/i");
   m_pair_tree->Branch("has_kshort_daughter_details",
                       &m_pair.has_kshort_daughter_details,
                       "has_kshort_daughter_details/I");
@@ -3707,6 +3758,8 @@ bool TpcV0CandidateTree::passes_species_selection(
     const Vec3 &pair_vertex, const Vec3 &primary_vertex,
     const Vec3 &primary_pca1,
     const Vec3 &primary_pca2,
+    const Vec3 &primary_mom1,
+    const Vec3 &primary_mom2,
     bool have_primary_pair,
     const std::pair<double, double> &dca1,
     const std::pair<double, double> &dca2,
@@ -3725,8 +3778,16 @@ bool TpcV0CandidateTree::passes_species_selection(
     return false;
   }
 
+  const double selection_pt1 =
+      secondary_topology ? pt(track1.momentum) : pt(primary_mom1);
+  const double selection_pt2 =
+      secondary_topology ? pt(track2.momentum) : pt(primary_mom2);
+
   if (cuts.track_pt_min >= 0.0 &&
-      (pt(track1.momentum) < cuts.track_pt_min || pt(track2.momentum) < cuts.track_pt_min))
+      (!std::isfinite(selection_pt1) ||
+       !std::isfinite(selection_pt2) ||
+       selection_pt1 < cuts.track_pt_min ||
+       selection_pt2 < cuts.track_pt_min))
   {
     return false;
   }
@@ -3745,10 +3806,6 @@ bool TpcV0CandidateTree::passes_species_selection(
   }
 
   const double flight_length = distance(pair_vertex, primary_vertex);
-  if (false) std::cout << "[V0CandidateTree] flight_length=" << flight_length
-            << " pair_vertex=" << pair_vertex.x << "," << pair_vertex.y << "," << pair_vertex.z
-            << " primary_vertex=" << primary_vertex.x << "," << primary_vertex.y << "," << primary_vertex.z
-            << std::endl;
 
   if (!secondary_topology)
   {
@@ -3759,10 +3816,17 @@ bool TpcV0CandidateTree::passes_species_selection(
       return false;
     }
 
-    // Avoid this while primary_vertex.z is fixed to zero.
+    // Avoid a tight DCAz cut while primary_vertex.z is fixed to zero.
     if (cuts.track_dca_z_abs_max >= 0.0 &&
         (std::abs(dca1.second) > cuts.track_dca_z_abs_max ||
          std::abs(dca2.second) > cuts.track_dca_z_abs_max))
+    {
+      return false;
+    }
+
+    if (cuts.flight_length_max >= 0.0 &&
+        (!std::isfinite(flight_length) ||
+         flight_length > cuts.flight_length_max))
     {
       return false;
     }
