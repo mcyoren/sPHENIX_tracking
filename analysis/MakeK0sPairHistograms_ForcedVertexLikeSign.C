@@ -1,20 +1,23 @@
-// MakeK0sPairHistograms_MomentumScaleMap.C
+// MakeMineV0PairHistograms.C
 //
-// One-pass V0 QA for TpcDstV0Finder pairTree.
-//
-// Optional momentum-scale correction:
-//   applyMomentumScaleMap=true loads side/charge/pT/phi/eta scale maps,
-//   applies them to both secondary and prompt daughter momenta, recalculates
-//   all masses and pair pT values, and fills the existing histograms with
-//   corrected quantities only.
+// One-pass V0 QA for TpcV0CandidateTree pairTree and likeSignPairTree.
 // Produces 10 cumulative cut levels plus exactCut1/2/3, with:
 //   * K0S mass vs V0 pT
 //   * Lambda mass vs V0 pT
 //   * anti-Lambda mass vs V0 pT
 //   * phi -> K+K- mass QA with prompt-track cuts
 //   * D0/anti-D0 -> K pi mass QA with prompt-track cuts
+//   * ordinary primary-PCA and forced-primary-vertex-constrained prompt sets
+//   * like-sign Lambda, phi, and D0 backgrounds read from likeSignPairTree
 //   * Armenteros-Podolanski qT vs alpha
 //   * compact TH3F: V0 pT vs mass vs |pairDCA|
+//
+//
+// Output layout:
+//   * cutXX/.../unlike is filled only from pairTree
+//   * cutXX/.../like, plusplus, minusminus are filled only from likeSignPairTree
+//   * promptMesons/... uses ordinary primary-PCA momenta
+//   * promptMesonsPrimaryConstrained/... uses forced-primary-vertex momenta
 //
 // Lambda convention from TpcDstV0Finder:
 //   mass_Lambda:     positive daughter = proton, negative daughter = pion
@@ -26,21 +29,23 @@
 //
 // Example:
 // root -l -b -q \
-// 'MakeK0sPairHistograms_MomentumScaleMap.C("/path/to/V0/files","HITS*_V0.root","output","v0_qa.root","pairTree",true)'
+// 'MakeMineV0PairHistograms.C("/path/to/V0/files","HITS*_V0.root","output","v0_qa.root","pairTree",true)'
 
 #include <TBranch.h>
 #include <TChain.h>
+#include <TChainElement.h>
 #include <TDirectory.h>
 #include <TFile.h>
 #include <TH1I.h>
 #include <TH1F.h>
 #include <TH2F.h>
 #include <TH3F.h>
-#include <TH3D.h>
 #include <TString.h>
 #include <TSystem.h>
+#include <TTree.h>
 #include <TMath.h>
 #include <TNamed.h>
+#include <TObjArray.h>
 
 #include <algorithm>
 #include <cmath>
@@ -142,343 +147,14 @@ namespace
   constexpr double kTwoPi = 2.0 * TMath::Pi();
   constexpr double kPionMass = 0.13957039;
   constexpr double kKaonMass = 0.493677;
-  constexpr double kProtonMass = 0.9382720813;
 
-
-  class MomentumScaleMap
-  {
-   public:
-    bool load(const char* fileName)
-    {
-      if (!fileName || std::string(fileName).empty())
-      {
-        std::cerr
-          << "ERROR: momentum-scale map filename is empty"
-          << std::endl;
-        return false;
-      }
-
-      m_file.reset(TFile::Open(fileName, "READ"));
-
-      if (!m_file || m_file->IsZombie())
-      {
-        std::cerr
-          << "ERROR: cannot open momentum-scale map "
-          << fileName << std::endl;
-        return false;
-      }
-
-      for (int side = 0; side < 2; ++side)
-      {
-        for (int chargeIndex = 0; chargeIndex < 2; ++chargeIndex)
-        {
-          const char* chargeName =
-            chargeIndex == 0 ? "qminus" : "qplus";
-
-          const TString path = TString::Format(
-            "side%d/%s/h3_momentum_scale",
-            side,
-            chargeName);
-
-          TH3D* source =
-            dynamic_cast<TH3D*>(m_file->Get(path));
-
-          if (!source)
-          {
-            std::cerr
-              << "ERROR: missing momentum-scale histogram "
-              << path << std::endl;
-            return false;
-          }
-
-          m_maps[side][chargeIndex] =
-            dynamic_cast<TH3D*>(source->Clone(
-              TString::Format(
-                "h3_momentum_scale_side%d_%s_local",
-                side,
-                chargeName)));
-
-          m_maps[side][chargeIndex]->SetDirectory(nullptr);
-        }
-      }
-
-      m_loaded = true;
-      return true;
-    }
-
-    bool loaded() const
-    {
-      return m_loaded;
-    }
-
-    double lookup(const int side,
-                  const double charge,
-                  const double pt,
-                  const double phi,
-                  const double eta) const
-    {
-      if (!m_loaded)
-      {
-        return 1.0;
-      }
-
-      const int safeSide =
-        std::clamp(side, 0, 1);
-
-      const int chargeIndex =
-        charge > 0.0 ? 1 : 0;
-
-      const TH3D* histogram =
-        m_maps[safeSide][chargeIndex];
-
-      if (!histogram)
-      {
-        return 1.0;
-      }
-
-      const TAxis* ptAxis = histogram->GetXaxis();
-      const TAxis* phiAxis = histogram->GetYaxis();
-      const TAxis* etaAxis = histogram->GetZaxis();
-
-      const double safePt = std::clamp(
-        pt,
-        ptAxis->GetBinCenter(1),
-        ptAxis->GetBinCenter(ptAxis->GetNbins()));
-
-      double wrappedPhi = phi;
-      while (wrappedPhi >= TMath::Pi()) wrappedPhi -= kTwoPi;
-      while (wrappedPhi < -TMath::Pi()) wrappedPhi += kTwoPi;
-
-      const double safeEta = std::clamp(
-        eta,
-        etaAxis->GetBinCenter(1),
-        etaAxis->GetBinCenter(etaAxis->GetNbins()));
-
-      const auto axisInterpolation =
-        [](const TAxis* axis,
-           const double value,
-           int& lowerBin,
-           int& upperBin,
-           double& fraction)
-      {
-        const int numberOfBins = axis->GetNbins();
-
-        if (value <= axis->GetBinCenter(1))
-        {
-          lowerBin = 1;
-          upperBin = 1;
-          fraction = 0.0;
-          return;
-        }
-
-        if (value >= axis->GetBinCenter(numberOfBins))
-        {
-          lowerBin = numberOfBins;
-          upperBin = numberOfBins;
-          fraction = 0.0;
-          return;
-        }
-
-        upperBin = axis->FindBin(value);
-
-        if (axis->GetBinCenter(upperBin) < value)
-        {
-          lowerBin = upperBin;
-          upperBin = std::min(numberOfBins, upperBin + 1);
-        }
-        else
-        {
-          lowerBin = std::max(1, upperBin - 1);
-        }
-
-        const double lowerCenter =
-          axis->GetBinCenter(lowerBin);
-        const double upperCenter =
-          axis->GetBinCenter(upperBin);
-
-        fraction =
-          upperCenter > lowerCenter
-            ? (value - lowerCenter) /
-              (upperCenter - lowerCenter)
-            : 0.0;
-
-        fraction = std::clamp(fraction, 0.0, 1.0);
-      };
-
-      int ptLow = 1;
-      int ptHigh = 1;
-      int etaLow = 1;
-      int etaHigh = 1;
-      double ptFraction = 0.0;
-      double etaFraction = 0.0;
-
-      axisInterpolation(
-        ptAxis,
-        safePt,
-        ptLow,
-        ptHigh,
-        ptFraction);
-
-      axisInterpolation(
-        etaAxis,
-        safeEta,
-        etaLow,
-        etaHigh,
-        etaFraction);
-
-      // Periodic phi interpolation.
-      int phiLow = phiAxis->FindBin(wrappedPhi);
-      phiLow = std::clamp(
-        phiLow,
-        1,
-        phiAxis->GetNbins());
-
-      int phiHigh = phiLow;
-      double phiFraction = 0.0;
-
-      const double phiCenter =
-        phiAxis->GetBinCenter(phiLow);
-
-      if (wrappedPhi >= phiCenter)
-      {
-        phiHigh =
-          phiLow == phiAxis->GetNbins()
-            ? 1
-            : phiLow + 1;
-
-        double highCenter =
-          phiAxis->GetBinCenter(phiHigh);
-
-        if (phiHigh == 1)
-        {
-          highCenter += kTwoPi;
-        }
-
-        phiFraction =
-          highCenter > phiCenter
-            ? (wrappedPhi - phiCenter) /
-              (highCenter - phiCenter)
-            : 0.0;
-      }
-      else
-      {
-        phiHigh = phiLow;
-        phiLow =
-          phiHigh == 1
-            ? phiAxis->GetNbins()
-            : phiHigh - 1;
-
-        double lowCenter =
-          phiAxis->GetBinCenter(phiLow);
-        double highCenter =
-          phiAxis->GetBinCenter(phiHigh);
-        double adjustedPhi = wrappedPhi;
-
-        if (phiHigh == 1)
-        {
-          highCenter += kTwoPi;
-        }
-
-        if (phiLow == phiAxis->GetNbins() &&
-            phiHigh == 1 &&
-            adjustedPhi < lowCenter)
-        {
-          adjustedPhi += kTwoPi;
-        }
-
-        phiFraction =
-          highCenter > lowCenter
-            ? (adjustedPhi - lowCenter) /
-              (highCenter - lowCenter)
-            : 0.0;
-      }
-
-      phiFraction =
-        std::clamp(phiFraction, 0.0, 1.0);
-
-      double value = 0.0;
-      double totalWeight = 0.0;
-
-      for (const auto& ptTerm : {
-             std::pair<int, double>{ptLow, 1.0 - ptFraction},
-             std::pair<int, double>{ptHigh, ptFraction}})
-      {
-        for (const auto& phiTerm : {
-               std::pair<int, double>{phiLow, 1.0 - phiFraction},
-               std::pair<int, double>{phiHigh, phiFraction}})
-        {
-          for (const auto& etaTerm : {
-                 std::pair<int, double>{etaLow, 1.0 - etaFraction},
-                 std::pair<int, double>{etaHigh, etaFraction}})
-          {
-            const double weight =
-              ptTerm.second *
-              phiTerm.second *
-              etaTerm.second;
-
-            if (!(weight > 0.0))
-            {
-              continue;
-            }
-
-            const double binValue =
-              histogram->GetBinContent(
-                ptTerm.first,
-                phiTerm.first,
-                etaTerm.first);
-
-            if (!std::isfinite(binValue) ||
-                !(binValue > 0.0))
-            {
-              continue;
-            }
-
-            value += weight * binValue;
-            totalWeight += weight;
-          }
-        }
-      }
-
-      if (!(totalWeight > 0.0))
-      {
-        return 1.0;
-      }
-
-      return value / totalWeight;
-    }
-
-   private:
-    std::unique_ptr<TFile> m_file;
-    TH3D* m_maps[2][2] = {
-      {nullptr, nullptr},
-      {nullptr, nullptr}
-    };
-    bool m_loaded = false;
-  };
-
-  double pseudorapidity(const double px,
-                        const double py,
-                        const double pz)
-  {
-    const double momentum =
-      std::sqrt(px * px + py * py + pz * pz);
-
-    const double numerator = momentum + pz;
-    const double denominator = momentum - pz;
-
-    if (!(numerator > 0.0) ||
-        !(denominator > 0.0))
-    {
-      return std::numeric_limits<double>::quiet_NaN();
-    }
-
-    return 0.5 * std::log(numerator / denominator);
-  }
-
-  int inferTrackSide(const double eta)
-  {
-    return eta >= 0.0 ? 1 : 0;
-  }
+  // Must match TpcV0CandidateTree::CandidateMask.
+  constexpr UInt_t kCandidateKShort = 1U << 0;
+  constexpr UInt_t kCandidateLambda = 1U << 1;
+  constexpr UInt_t kCandidateAntiLambda = 1U << 2;
+  constexpr UInt_t kCandidatePhi = 1U << 3;
+  constexpr UInt_t kCandidateD0 = 1U << 4;
+  constexpr UInt_t kCandidateAntiD0 = 1U << 5;
 
   double invariantMass(const double px1,
                        const double py1,
@@ -815,7 +491,7 @@ namespace
   }
 }
 
-void MakeK0sPairHistograms_MomentumScaleMap(
+void MakeK0sPairHistograms(
   const char* inputDir = ".",
   const char* filePattern = "*.root",
   const char* outputDir = "output",
@@ -828,9 +504,9 @@ void MakeK0sPairHistograms_MomentumScaleMap(
   const double beamX = 0.158,
   const double beamY = 0.285,
   const double beamZ = 0.0,
-  const bool applyMomentumScaleMap = true,
-  const char* momentumScaleMapFile =
-    "input/k0s_vertex_momentum_scale_map.root")//k0s_dnn_momentum_scale_map k0s_dnn_momentum_scale_map k0s_momentum_scale_map_cut03 k0s_vertex_momentum_scale_map
+  const char* likeSignTreeName = "likeSignPairTree",
+  const bool includeLikeSignTree = true,
+  const bool includePrimaryConstrainedPrompt = true)
 {
   TH1::AddDirectory(kTRUE);
 
@@ -844,25 +520,90 @@ void MakeK0sPairHistograms_MomentumScaleMap(
             << ", maxEntries=" << maxEntries
             << ", usePrimaryVertexKinematicsForPrompt="
             << usePrimaryVertexKinematicsForPrompt
-            << ", beamX=" << beamX
-            << ", beamY=" << beamY
-            << ", beamZ=" << beamZ
-            << ", applyMomentumScaleMap=" << applyMomentumScaleMap
-            << ", momentumScaleMapFile=" << momentumScaleMapFile
+            << ", likeSignTreeName=" << likeSignTreeName
+            << ", includeLikeSignTree=" << includeLikeSignTree
+            << ", includePrimaryConstrainedPrompt="
+            << includePrimaryConstrainedPrompt
             << std::endl;
 
   const TString chainPattern =
     TString::Format("%s/%s", inputDir, filePattern);
 
+  // Build one logical chain containing unlike-sign pairTree entries followed
+  // by like-sign entries from the separate likeSignPairTree.  TChain supports
+  // a different tree name for each added file through AddFile(..., tname).
   TChain chain(treeName);
-  const int nFiles = chain.Add(chainPattern);
+  const int nUnlikeFiles = chain.Add(chainPattern);
 
-  if (nFiles <= 0)
+  if (nUnlikeFiles <= 0)
   {
     std::cerr << "ERROR: no files matched "
               << chainPattern << std::endl;
     return;
   }
+
+  std::vector<std::string> inputFiles;
+  if (TObjArray* fileList = chain.GetListOfFiles())
+  {
+    inputFiles.reserve(fileList->GetEntries());
+
+    for (int index = 0; index < fileList->GetEntries(); ++index)
+    {
+      auto* element =
+        dynamic_cast<TChainElement*>(fileList->At(index));
+
+      if (element != nullptr)
+      {
+        inputFiles.emplace_back(element->GetTitle());
+      }
+    }
+  }
+
+  const Long64_t nUnlikeEntries =
+    chain.GetEntries();
+
+  int nLikeSignFiles = 0;
+
+  if (includeLikeSignTree)
+  {
+    for (const auto& filename : inputFiles)
+    {
+      std::unique_ptr<TFile> inputFile(
+        TFile::Open(filename.c_str(), "READ"));
+
+      if (!inputFile || inputFile->IsZombie())
+      {
+        std::cerr
+          << "WARNING: could not inspect " << filename
+          << " for tree " << likeSignTreeName
+          << std::endl;
+        continue;
+      }
+
+      if (inputFile->Get(likeSignTreeName) == nullptr)
+      {
+        std::cerr
+          << "WARNING: " << filename
+          << " does not contain " << likeSignTreeName
+          << std::endl;
+        continue;
+      }
+
+      chain.AddFile(
+        filename.c_str(),
+        TTree::kMaxEntries,
+        likeSignTreeName);
+
+      ++nLikeSignFiles;
+    }
+  }
+
+  const int nFiles = nUnlikeFiles + nLikeSignFiles;
+
+  std::cout
+    << "Input trees: pairTree files=" << nUnlikeFiles
+    << ", " << likeSignTreeName << " files=" << nLikeSignFiles
+    << std::endl;
 
   const std::vector<std::string> requiredBranches = {
     "mass_Kshort",
@@ -898,7 +639,12 @@ void MakeK0sPairHistograms_MomentumScaleMap(
     "quality1",
     "quality2",
     "dedx_1",
-    "dedx_2"
+    "dedx_2",
+    "candidate_mask",
+    "mass_P1Pi2",
+    "mass_Pi1P2",
+    "mass_K1Pi2",
+    "mass_Pi1K2"
   };
 
   bool missingBranch = false;
@@ -913,7 +659,7 @@ void MakeK0sPairHistograms_MomentumScaleMap(
     }
   }
 
-  if (usePrimaryVertexKinematicsForPrompt)
+  if (usePrimaryVertexKinematicsForPrompt || includePrimaryConstrainedPrompt)
   {
     const std::vector<std::string> requiredPrimaryBranches = {
       "primary_px1",
@@ -944,15 +690,41 @@ void MakeK0sPairHistograms_MomentumScaleMap(
     }
   }
 
-  if (missingBranch)
+  if (includePrimaryConstrainedPrompt)
   {
-    return;
+    const std::vector<std::string> requiredConstrainedBranches = {
+      "primary_constrained_valid1",
+      "primary_constrained_valid2",
+      "primary_constrained_chi2_1",
+      "primary_constrained_chi2_2",
+      "primary_constrained_px1",
+      "primary_constrained_py1",
+      "primary_constrained_pz1",
+      "primary_constrained_px2",
+      "primary_constrained_py2",
+      "primary_constrained_pz2",
+      "primary_constrained_pair_pt",
+      "mass_Phi_primary_constrained",
+      "mass_D0_primary_constrained",
+      "mass_AntiD0_primary_constrained",
+      "mass_K1Pi2_primary_constrained",
+      "mass_Pi1K2_primary_constrained"
+    };
+
+    for (const auto& name : requiredConstrainedBranches)
+    {
+      if (!branchExists(chain, name.c_str()))
+      {
+        std::cerr
+          << "ERROR: includePrimaryConstrainedPrompt=true, "
+          << "but branch " << name << " is missing"
+          << std::endl;
+        missingBranch = true;
+      }
+    }
   }
 
-  MomentumScaleMap momentumScaleMap;
-
-  if (applyMomentumScaleMap &&
-      !momentumScaleMap.load(momentumScaleMapFile))
+  if (missingBranch)
   {
     return;
   }
@@ -987,6 +759,29 @@ void MakeK0sPairHistograms_MomentumScaleMap(
   Int_t primary_pca_valid = 0;
   Float_t prompt_pairDCA = 0.f;
   Int_t prompt_pca_valid = 0;
+
+  Int_t primary_constrained_valid1 = 0;
+  Int_t primary_constrained_valid2 = 0;
+  Float_t primary_constrained_chi2_1 = 0.f;
+  Float_t primary_constrained_chi2_2 = 0.f;
+  Float_t primary_constrained_px1 = 0.f;
+  Float_t primary_constrained_py1 = 0.f;
+  Float_t primary_constrained_pz1 = 0.f;
+  Float_t primary_constrained_px2 = 0.f;
+  Float_t primary_constrained_py2 = 0.f;
+  Float_t primary_constrained_pz2 = 0.f;
+  Float_t primary_constrained_pair_pt = 0.f;
+  Float_t mass_Phi_primary_constrained = 0.f;
+  Float_t mass_D0_primary_constrained = 0.f;
+  Float_t mass_AntiD0_primary_constrained = 0.f;
+  Float_t mass_K1Pi2_primary_constrained = 0.f;
+  Float_t mass_Pi1K2_primary_constrained = 0.f;
+
+  Float_t mass_P1Pi2 = 0.f;
+  Float_t mass_Pi1P2 = 0.f;
+  Float_t mass_K1Pi2 = 0.f;
+  Float_t mass_Pi1K2 = 0.f;
+  UInt_t candidate_mask = 0U;
 
   Float_t v0_px = 0.f;
   Float_t v0_py = 0.f;
@@ -1031,7 +826,7 @@ void MakeK0sPairHistograms_MomentumScaleMap(
   chain.SetBranchAddress("py2", &py2);
   chain.SetBranchAddress("pz2", &pz2);
 
-  if (usePrimaryVertexKinematicsForPrompt)
+  if (usePrimaryVertexKinematicsForPrompt || includePrimaryConstrainedPrompt)
   {
     chain.SetBranchAddress("primary_px1", &primary_px1);
     chain.SetBranchAddress("primary_py1", &primary_py1);
@@ -1048,6 +843,64 @@ void MakeK0sPairHistograms_MomentumScaleMap(
     chain.SetBranchAddress("ntpc_clusters1", &ntpc_clusters1);
     chain.SetBranchAddress("ntpc_clusters2", &ntpc_clusters2);
   }
+
+  if (includePrimaryConstrainedPrompt)
+  {
+    chain.SetBranchAddress(
+      "primary_constrained_valid1",
+      &primary_constrained_valid1);
+    chain.SetBranchAddress(
+      "primary_constrained_valid2",
+      &primary_constrained_valid2);
+    chain.SetBranchAddress(
+      "primary_constrained_chi2_1",
+      &primary_constrained_chi2_1);
+    chain.SetBranchAddress(
+      "primary_constrained_chi2_2",
+      &primary_constrained_chi2_2);
+    chain.SetBranchAddress(
+      "primary_constrained_px1",
+      &primary_constrained_px1);
+    chain.SetBranchAddress(
+      "primary_constrained_py1",
+      &primary_constrained_py1);
+    chain.SetBranchAddress(
+      "primary_constrained_pz1",
+      &primary_constrained_pz1);
+    chain.SetBranchAddress(
+      "primary_constrained_px2",
+      &primary_constrained_px2);
+    chain.SetBranchAddress(
+      "primary_constrained_py2",
+      &primary_constrained_py2);
+    chain.SetBranchAddress(
+      "primary_constrained_pz2",
+      &primary_constrained_pz2);
+    chain.SetBranchAddress(
+      "primary_constrained_pair_pt",
+      &primary_constrained_pair_pt);
+    chain.SetBranchAddress(
+      "mass_Phi_primary_constrained",
+      &mass_Phi_primary_constrained);
+    chain.SetBranchAddress(
+      "mass_D0_primary_constrained",
+      &mass_D0_primary_constrained);
+    chain.SetBranchAddress(
+      "mass_AntiD0_primary_constrained",
+      &mass_AntiD0_primary_constrained);
+    chain.SetBranchAddress(
+      "mass_K1Pi2_primary_constrained",
+      &mass_K1Pi2_primary_constrained);
+    chain.SetBranchAddress(
+      "mass_Pi1K2_primary_constrained",
+      &mass_Pi1K2_primary_constrained);
+  }
+
+  chain.SetBranchAddress("mass_P1Pi2", &mass_P1Pi2);
+  chain.SetBranchAddress("mass_Pi1P2", &mass_Pi1P2);
+  chain.SetBranchAddress("mass_K1Pi2", &mass_K1Pi2);
+  chain.SetBranchAddress("mass_Pi1K2", &mass_Pi1K2);
+  chain.SetBranchAddress("candidate_mask", &candidate_mask);
 
   chain.SetBranchAddress("v0_px", &v0_px);
   chain.SetBranchAddress("v0_py", &v0_py);
@@ -1151,22 +1004,26 @@ void MakeK0sPairHistograms_MomentumScaleMap(
 
   output->cd();
 
-  TNamed momentumScaleInfo(
-    "momentum_scale_correction",
-    applyMomentumScaleMap
-      ? TString::Format(
-          "enabled; map=%s; scale applied to px,py,pz for both "
-          "secondary and prompt daughter momenta before mass and pair-pT calculation",
-          momentumScaleMapFile).Data()
-      : "disabled");
-  momentumScaleInfo.Write();
-
   TNamed promptKinematicsInfo(
     "prompt_kinematics",
     usePrimaryVertexKinematicsForPrompt
       ? "daughter momenta at independent transverse PCAs to the configured beam axis"
       : "secondary pair-PCA daughter momenta");
   promptKinematicsInfo.Write();
+
+  TNamed constrainedPromptInfo(
+    "primary_constrained_prompt_kinematics",
+    includePrimaryConstrainedPrompt
+      ? "enabled: second prompt-meson histogram set uses the forced primary-vertex-constrained daughter momenta"
+      : "disabled");
+  constrainedPromptInfo.Write();
+
+  TNamed likeSignSourceInfo(
+    "like_sign_source",
+    includeLikeSignTree
+      ? likeSignTreeName
+      : "disabled");
+  likeSignSourceInfo.Write();
 
   TH1I* h_cutflow_unlike = new TH1I(
     "h_cutflow_unlike",
@@ -1278,43 +1135,43 @@ void MakeK0sPairHistograms_MomentumScaleMap(
   const std::vector<PromptSelection> promptSelections = {
     {
       "primary_dz_2p0",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
+      "primary momenta, pT>0.40, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<2.0; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 2.0, -1.0
+      0.40, 20, 20.0, 3.0, -1.0, 20.0, 2.0, -1.0
     },
     {
       "primary_dz_1p0",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
+      "primary momenta, pT>0.40, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<1.0; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 1.0, -1.0
+      0.40, 20, 20.0, 3.0, -1.0, 20.0, 1.0, -1.0
     },
     {
       "primary_dz_0p5",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
+      "primary momenta, pT>0.40, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<0.5; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 0.5, -1.0
+      0.40, 20, 20.0, 3.0, -1.0, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p2",
-      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
+      "primary momenta, pT>0.40, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<0.2; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 0.2, -1.0
+      0.40, 20, 20.0, 3.0, -1.0, 20.0, 0.2, -1.0
     },
     {
       "primary_dz_0p5_track",
-      "primary momenta, pT>0.30, nTPC>=30, quality<15, |DCAxy|<1, "
+      "primary momenta, pT>0.50, nTPC>=30, quality<15, |DCAxy|<1, "
       "|primary PCA z|<20, |Delta primary PCA z|<0.5",
-      0.30, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0
+      0.50, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p5_dcaz2",
       "same as primary_dz_0p5_track plus |DCAz to fixed z=0|<2; diagnostic only",
-      0.30, 30, 15.0, 1.0, 2.0, 20.0, 0.5, -1.0
+      0.40, 30, 15.0, 1.0, 2.0, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p5_pid",
       "same as primary_dz_0p5_track plus pion dE/dx<300 and kaon dE/dx>300",
-      0.30, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0,
+      0.40, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0,
       -1.0, 300.0, 300.0, -1.0
     }
   };
@@ -1348,212 +1205,263 @@ void MakeK0sPairHistograms_MomentumScaleMap(
     }
   }
 
-  const Long64_t totalEntries = chain.GetEntries();
+  std::map<std::string, std::map<std::string, HistSet>>
+    promptConstrainedHistograms;
+
+  if (includePrimaryConstrainedPrompt)
+  {
+    TDirectory* constrainedPromptTopDir =
+      output->mkdir("promptMesonsPrimaryConstrained");
+
+    for (const auto& selection : promptSelections)
+    {
+      TDirectory* selectionDir =
+        constrainedPromptTopDir->mkdir(selection.name.c_str());
+
+      selectionDir->cd();
+
+      const std::string constrainedDescription =
+        std::string("primary-vertex-constrained momenta; ") +
+        selection.description;
+
+      TNamed selectionInfo(
+        "selection",
+        constrainedDescription.c_str());
+      selectionInfo.Write();
+
+      Selection bookingSelection{
+        selection.name, constrainedDescription,
+        0., 0., 0., 0., 0., 0., 0., 0., 0
+      };
+
+      for (const auto category : {
+             ChargeCategory::Unlike,
+             ChargeCategory::Like,
+             ChargeCategory::PlusPlus,
+             ChargeCategory::MinusMinus})
+      {
+        const std::string categoryName =
+          chargeName(category);
+
+        TDirectory* chargeDir =
+          selectionDir->mkdir(categoryName.c_str());
+
+        promptConstrainedHistograms
+          [selection.name][categoryName] =
+            bookHistograms(
+              chargeDir,
+              bookingSelection,
+              categoryName);
+      }
+    }
+  }
+
+  const Long64_t totalEntries =
+    chain.GetEntries();
+
+  const Long64_t nLikeSignEntries =
+    std::max<Long64_t>(
+      0,
+      totalEntries - nUnlikeEntries);
+
+  // maxEntries is applied independently to pairTree and likeSignPairTree.
+  // This keeps a short debug run from consuming only the unlike-sign block.
+  const Long64_t unlikeEntriesToProcess =
+    maxEntries >= 0
+      ? std::min(nUnlikeEntries, maxEntries)
+      : nUnlikeEntries;
+
+  const Long64_t likeSignEntriesToProcess =
+    maxEntries >= 0
+      ? std::min(nLikeSignEntries, maxEntries)
+      : nLikeSignEntries;
 
   const Long64_t entriesToProcess =
-    (maxEntries >= 0)
-      ? std::min(totalEntries, maxEntries)
-      : totalEntries;
+    unlikeEntriesToProcess +
+    likeSignEntriesToProcess;
 
   std::cout
     << "Added " << nFiles
-    << " files, total entries = " << totalEntries
-    << ", processing = " << entriesToProcess
+    << " tree/file segments"
+    << ", pairTree entries = " << nUnlikeEntries
+    << ", likeSignPairTree entries = " << nLikeSignEntries
+    << ", processing pairTree = " << unlikeEntriesToProcess
+    << ", processing likeSignPairTree = " << likeSignEntriesToProcess
     << ", prompt kinematics = "
     << (usePrimaryVertexKinematicsForPrompt
           ? "primary vertex"
           : "secondary pair PCA")
-    << ", momentum-scale map = "
-    << (applyMomentumScaleMap ? momentumScaleMapFile : "disabled")
+    << ", forced-vertex prompt histograms = "
+    << (includePrimaryConstrainedPrompt ? "ON" : "OFF")
+    << ", separate like-sign tree files = "
+    << nLikeSignFiles
     << std::endl;
 
-  for (Long64_t entry = 0;
-       entry < entriesToProcess;
-       ++entry)
+  for (Long64_t processedEntry = 0;
+       processedEntry < entriesToProcess;
+       ++processedEntry)
   {
+    const Long64_t entry =
+      processedEntry < unlikeEntriesToProcess
+        ? processedEntry
+        : nUnlikeEntries +
+            (processedEntry - unlikeEntriesToProcess);
+
     chain.GetEntry(entry);
 
     const double qualityScale =
       ScaleQualityBy10 ? 10.0 : 1.0;
 
-    if (entry % 100000 == 0)
+    if (processedEntry % 100000 == 0)
     {
       std::cout
-        << "Processing " << entry
+        << "Processing " << processedEntry
         << " / " << entriesToProcess
+        << " (chain entry " << entry << ")"
         << std::endl;
     }
 
+    const std::string sourceTreeName =
+      chain.GetTree() != nullptr
+        ? chain.GetTree()->GetName()
+        : "";
 
-    
-    const auto categories =
+    const bool fromLikeSignTree =
+      sourceTreeName == likeSignTreeName;
+
+    const bool unlikeSign =
+      charge1 * charge2 < 0.0;
+
+    const bool likeSign =
+      charge1 * charge2 > 0.0;
+
+    // The updated producer writes unlike-sign candidates to pairTree and
+    // like-sign candidates to likeSignPairTree. Enforce this separation here
+    // so old files cannot accidentally double-count same-sign rows.
+    if ((fromLikeSignTree && !likeSign) ||
+        (!fromLikeSignTree && !unlikeSign))
+    {
+      continue;
+    }
+
+    auto categories =
       chargeCategories(charge1, charge2);
+
+    categories.erase(
+      std::remove_if(
+        categories.begin(),
+        categories.end(),
+        [fromLikeSignTree](const ChargeCategory category)
+        {
+          if (fromLikeSignTree)
+          {
+            return category == ChargeCategory::Unlike;
+          }
+
+          return category != ChargeCategory::Unlike;
+        }),
+      categories.end());
 
     if (categories.empty())
     {
       continue;
     }
 
-    // --------------------------------------------------------
-    // Secondary pair-PCA kinematics.
-    // When enabled, the same phase-space momentum-scale map is
-    // applied independently to both daughter tracks.
-    // --------------------------------------------------------
-    const double secondaryEta1 =
-      pseudorapidity(px1, py1, pz1);
-    const double secondaryEta2 =
-      pseudorapidity(px2, py2, pz2);
+    // The signed V0 delta-phi definition is unambiguous for unlike-sign pairs.
+    // For like-sign pairs there is no positive/negative daughter ordering, so
+    // require the same opening in either track ordering.
+    const double deltaPhiThreshold =
+      0.8 - 0.4 * (v0_pt < 2.0 ? v0_pt : 2.0);
 
-    const int secondarySide1 =
-      inferTrackSide(secondaryEta1);
-    const int secondarySide2 =
-      inferTrackSide(secondaryEta2);
+    const double phi1 =
+      std::atan2(py1, px1);
 
-    const double secondaryScale1 =
-      applyMomentumScaleMap
-        ? momentumScaleMap.lookup(
-            secondarySide1,
-            charge1,
-            std::hypot(px1, py1),
-            std::atan2(py1, px1),
-            secondaryEta1)
-        : 1.0;
+    const double phi2 =
+      std::atan2(py2, px2);
 
-    const double secondaryScale2 =
-      applyMomentumScaleMap
-        ? momentumScaleMap.lookup(
-            secondarySide2,
-            charge2,
-            std::hypot(px2, py2),
-            std::atan2(py2, px2),
-            secondaryEta2)
-        : 1.0;
+    double deltaPhi = 0.0;
 
-    const double secondaryPx1 = secondaryScale1 * px1;
-    const double secondaryPy1 = secondaryScale1 * py1;
-    const double secondaryPz1 = secondaryScale1 * pz1;
-    const double secondaryPx2 = secondaryScale2 * px2;
-    const double secondaryPy2 = secondaryScale2 * py2;
-    const double secondaryPz2 = secondaryScale2 * pz2;
+    if (unlikeSign)
+    {
+      const double phiPositive =
+        charge1 > 0.0 ? phi1 : phi2;
 
+      const double phiNegative =
+        charge1 > 0.0 ? phi2 : phi1;
+
+      deltaPhi =
+        wrapPhi(phiPositive - phiNegative);
+    }
+    else
+    {
+      deltaPhi =
+        std::abs(wrapPhi(phi1 - phi2));
+    }
+
+    const bool passV0DeltaPhi =
+      deltaPhi >= deltaPhiThreshold;
+
+    // Secondary pair-PCA kinematics: always used for K0S/Lambda.
     const double pt1 =
-      std::hypot(secondaryPx1, secondaryPy1);
+      std::hypot(px1, py1);
+
     const double pt2 =
-      std::hypot(secondaryPx2, secondaryPy2);
+      std::hypot(px2, py2);
 
     const double daughterPtMin =
       std::min(pt1, pt2);
 
-    const double correctedV0Px =
-      secondaryPx1 + secondaryPx2;
-    const double correctedV0Py =
-      secondaryPy1 + secondaryPy2;
-    const double correctedV0Pz =
-      secondaryPz1 + secondaryPz2;
+    const bool track1HasHigherPt =
+      pt1 >= pt2;
 
-    const double correctedV0Pt =
-      std::hypot(correctedV0Px, correctedV0Py);
+    // Unique like-sign p-pi assignment: the higher-pT daughter receives the
+    // proton hypothesis. This mirrors the default Lambda background rule.
+    const double likeSignLambdaMass =
+      track1HasHigherPt
+        ? mass_P1Pi2
+        : mass_Pi1P2;
 
-    const double correctedMassKshort =
-      invariantMass(
-        secondaryPx1, secondaryPy1, secondaryPz1, kPionMass,
-        secondaryPx2, secondaryPy2, secondaryPz2, kPionMass);
+    const double likeSignProtonDedx =
+      track1HasHigherPt
+        ? dedx_1
+        : dedx_2;
 
-    const double phiPos = std::atan2(
-      charge1 == 1 ? secondaryPy1 : secondaryPy2,
-      charge1 == 1 ? secondaryPx1 : secondaryPx2);
-    const double phiNeg = std::atan2(
-      charge1 == 1 ? secondaryPy2 : secondaryPy1,
-      charge1 == 1 ? secondaryPx2 : secondaryPx1);
-    const double deltaPhi = wrapPhi(phiPos - phiNeg);
-    const bool passV0DeltaPhi =
-      deltaPhi >=
-        0.8 - 0.4 *
-        (correctedV0Pt < 2.0 ? correctedV0Pt : 2.0);
+    const double likeSignPionDedx =
+      track1HasHigherPt
+        ? dedx_2
+        : dedx_1;
 
-    double correctedMassLambda = -1.0;
-    double correctedMassAntiLambda = -1.0;
+    // Ordinary prompt kinematics: selectable between the independent primary
+    // beam-axis PCA and the secondary pair PCA.
+    const double promptPx1 =
+      usePrimaryVertexKinematicsForPrompt
+        ? primary_px1
+        : px1;
 
-    if (charge1 > 0)
-    {
-      correctedMassLambda =
-        invariantMass(
-          secondaryPx1, secondaryPy1, secondaryPz1, kProtonMass,
-          secondaryPx2, secondaryPy2, secondaryPz2, kPionMass);
+    const double promptPy1 =
+      usePrimaryVertexKinematicsForPrompt
+        ? primary_py1
+        : py1;
 
-      correctedMassAntiLambda =
-        invariantMass(
-          secondaryPx1, secondaryPy1, secondaryPz1, kPionMass,
-          secondaryPx2, secondaryPy2, secondaryPz2, kProtonMass);
-    }
-    else
-    {
-      correctedMassLambda =
-        invariantMass(
-          secondaryPx2, secondaryPy2, secondaryPz2, kProtonMass,
-          secondaryPx1, secondaryPy1, secondaryPz1, kPionMass);
+    const double promptPz1 =
+      usePrimaryVertexKinematicsForPrompt
+        ? primary_pz1
+        : pz1;
 
-      correctedMassAntiLambda =
-        invariantMass(
-          secondaryPx2, secondaryPy2, secondaryPz2, kPionMass,
-          secondaryPx1, secondaryPy1, secondaryPz1, kProtonMass);
-    }
+    const double promptPx2 =
+      usePrimaryVertexKinematicsForPrompt
+        ? primary_px2
+        : px2;
 
-    // --------------------------------------------------------
-    // Prompt kinematics.
-    // The map is evaluated from whichever prompt momentum source
-    // is selected: primary PCA or secondary pair PCA.
-    // --------------------------------------------------------
-    const double rawPromptPx1 =
-      usePrimaryVertexKinematicsForPrompt ? primary_px1 : px1;
-    const double rawPromptPy1 =
-      usePrimaryVertexKinematicsForPrompt ? primary_py1 : py1;
-    const double rawPromptPz1 =
-      usePrimaryVertexKinematicsForPrompt ? primary_pz1 : pz1;
+    const double promptPy2 =
+      usePrimaryVertexKinematicsForPrompt
+        ? primary_py2
+        : py2;
 
-    const double rawPromptPx2 =
-      usePrimaryVertexKinematicsForPrompt ? primary_px2 : px2;
-    const double rawPromptPy2 =
-      usePrimaryVertexKinematicsForPrompt ? primary_py2 : py2;
-    const double rawPromptPz2 =
-      usePrimaryVertexKinematicsForPrompt ? primary_pz2 : pz2;
-
-    const double promptEta1 =
-      pseudorapidity(rawPromptPx1, rawPromptPy1, rawPromptPz1);
-    const double promptEta2 =
-      pseudorapidity(rawPromptPx2, rawPromptPy2, rawPromptPz2);
-
-    const int promptSide1 =
-      inferTrackSide(promptEta1);
-    const int promptSide2 =
-      inferTrackSide(promptEta2);
-
-    const double promptScale1 =
-      applyMomentumScaleMap
-        ? momentumScaleMap.lookup(
-            promptSide1,
-            charge1,
-            std::hypot(rawPromptPx1, rawPromptPy1),
-            std::atan2(rawPromptPy1, rawPromptPx1),
-            promptEta1)
-        : 1.0;
-
-    const double promptScale2 =
-      applyMomentumScaleMap
-        ? momentumScaleMap.lookup(
-            promptSide2,
-            charge2,
-            std::hypot(rawPromptPx2, rawPromptPy2),
-            std::atan2(rawPromptPy2, rawPromptPx2),
-            promptEta2)
-        : 1.0;
-
-    const double promptPx1 = promptScale1 * rawPromptPx1;
-    const double promptPy1 = promptScale1 * rawPromptPy1;
-    const double promptPz1 = promptScale1 * rawPromptPz1;
-    const double promptPx2 = promptScale2 * rawPromptPx2;
-    const double promptPy2 = promptScale2 * rawPromptPy2;
-    const double promptPz2 = promptScale2 * rawPromptPz2;
+    const double promptPz2 =
+      usePrimaryVertexKinematicsForPrompt
+        ? primary_pz2
+        : pz2;
 
     const bool promptKinematicsFinite =
       primary_pca_valid != 0 &&
@@ -1568,8 +1476,10 @@ void MakeK0sPairHistograms_MomentumScaleMap(
 
     const double promptPt1 =
       std::hypot(promptPx1, promptPy1);
+
     const double promptPt2 =
       std::hypot(promptPx2, promptPy2);
+
     const double promptDaughterPtMin =
       std::min(promptPt1, promptPt2);
 
@@ -1583,33 +1493,140 @@ void MakeK0sPairHistograms_MomentumScaleMap(
         promptPx1, promptPy1, promptPz1, kKaonMass,
         promptPx2, promptPy2, promptPz2, kKaonMass);
 
-    double promptMassD0 = -1.0;
-    double promptMassAntiD0 = -1.0;
+    const double promptMassK1Pi2 =
+      invariantMass(
+        promptPx1, promptPy1, promptPz1, kKaonMass,
+        promptPx2, promptPy2, promptPz2, kPionMass);
 
-    if (charge1 > 0)
+    const double promptMassPi1K2 =
+      invariantMass(
+        promptPx1, promptPy1, promptPz1, kPionMass,
+        promptPx2, promptPy2, promptPz2, kKaonMass);
+
+    double promptMassD0 =
+      std::numeric_limits<double>::quiet_NaN();
+
+    double promptMassAntiD0 =
+      std::numeric_limits<double>::quiet_NaN();
+
+    if (unlikeSign)
     {
-      // D0: K- pi+; anti-D0: K+ pi-.
-      promptMassD0 =
-        invariantMass(
-          promptPx2, promptPy2, promptPz2, kKaonMass,
-          promptPx1, promptPy1, promptPz1, kPionMass);
+      if (charge1 > 0.0)
+      {
+        // D0: K- pi+; anti-D0: K+ pi-.
+        promptMassD0 =
+          promptMassPi1K2;
 
-      promptMassAntiD0 =
-        invariantMass(
-          promptPx1, promptPy1, promptPz1, kKaonMass,
-          promptPx2, promptPy2, promptPz2, kPionMass);
+        promptMassAntiD0 =
+          promptMassK1Pi2;
+      }
+      else
+      {
+        promptMassD0 =
+          promptMassK1Pi2;
+
+        promptMassAntiD0 =
+          promptMassPi1K2;
+      }
     }
-    else
-    {
-      promptMassD0 =
-        invariantMass(
-          promptPx1, promptPy1, promptPz1, kKaonMass,
-          promptPx2, promptPy2, promptPz2, kPionMass);
 
-      promptMassAntiD0 =
-        invariantMass(
-          promptPx2, promptPy2, promptPz2, kKaonMass,
-          promptPx1, promptPy1, promptPz1, kPionMass);
+    // Forced-primary-vertex kinematics. These are a second, independent set of
+    // prompt variables and never overwrite the ordinary primary-PCA values.
+    const bool constrainedPromptKinematicsFinite =
+      includePrimaryConstrainedPrompt &&
+      primary_constrained_valid1 != 0 &&
+      primary_constrained_valid2 != 0 &&
+      std::isfinite(primary_constrained_px1) &&
+      std::isfinite(primary_constrained_py1) &&
+      std::isfinite(primary_constrained_pz1) &&
+      std::isfinite(primary_constrained_px2) &&
+      std::isfinite(primary_constrained_py2) &&
+      std::isfinite(primary_constrained_pz2);
+
+    const double constrainedPromptPt1 =
+      std::hypot(
+        primary_constrained_px1,
+        primary_constrained_py1);
+
+    const double constrainedPromptPt2 =
+      std::hypot(
+        primary_constrained_px2,
+        primary_constrained_py2);
+
+    const double constrainedPromptDaughterPtMin =
+      std::min(
+        constrainedPromptPt1,
+        constrainedPromptPt2);
+
+    const double constrainedPromptPairPt =
+      std::isfinite(primary_constrained_pair_pt)
+        ? primary_constrained_pair_pt
+        : std::hypot(
+            primary_constrained_px1 +
+              primary_constrained_px2,
+            primary_constrained_py1 +
+              primary_constrained_py2);
+
+    const double constrainedPromptMassPhi =
+      std::isfinite(mass_Phi_primary_constrained)
+        ? mass_Phi_primary_constrained
+        : invariantMass(
+            primary_constrained_px1,
+            primary_constrained_py1,
+            primary_constrained_pz1,
+            kKaonMass,
+            primary_constrained_px2,
+            primary_constrained_py2,
+            primary_constrained_pz2,
+            kKaonMass);
+
+    const double constrainedPromptMassK1Pi2 =
+      std::isfinite(mass_K1Pi2_primary_constrained)
+        ? mass_K1Pi2_primary_constrained
+        : invariantMass(
+            primary_constrained_px1,
+            primary_constrained_py1,
+            primary_constrained_pz1,
+            kKaonMass,
+            primary_constrained_px2,
+            primary_constrained_py2,
+            primary_constrained_pz2,
+            kPionMass);
+
+    const double constrainedPromptMassPi1K2 =
+      std::isfinite(mass_Pi1K2_primary_constrained)
+        ? mass_Pi1K2_primary_constrained
+        : invariantMass(
+            primary_constrained_px1,
+            primary_constrained_py1,
+            primary_constrained_pz1,
+            kPionMass,
+            primary_constrained_px2,
+            primary_constrained_py2,
+            primary_constrained_pz2,
+            kKaonMass);
+
+    double constrainedPromptMassD0 =
+      std::numeric_limits<double>::quiet_NaN();
+
+    double constrainedPromptMassAntiD0 =
+      std::numeric_limits<double>::quiet_NaN();
+
+    if (unlikeSign)
+    {
+      constrainedPromptMassD0 =
+        std::isfinite(mass_D0_primary_constrained)
+          ? mass_D0_primary_constrained
+          : (charge1 > 0.0
+               ? constrainedPromptMassPi1K2
+               : constrainedPromptMassK1Pi2);
+
+      constrainedPromptMassAntiD0 =
+        std::isfinite(mass_AntiD0_primary_constrained)
+          ? mass_AntiD0_primary_constrained
+          : (charge1 > 0.0
+               ? constrainedPromptMassK1Pi2
+               : constrainedPromptMassPi1K2);
     }
 
     const double absDeltaPcaZ =
@@ -1661,9 +1678,9 @@ void MakeK0sPairHistograms_MomentumScaleMap(
 
     const double v0Momentum =
       std::sqrt(
-        correctedV0Px * correctedV0Px +
-        correctedV0Py * correctedV0Py +
-        correctedV0Pz * correctedV0Pz);
+        v0_px * v0_px +
+        v0_py * v0_py +
+        v0_pz * v0_pz);
 
     const double flightLength =
       std::sqrt(
@@ -1678,12 +1695,6 @@ void MakeK0sPairHistograms_MomentumScaleMap(
            v0_pz * flightZ) /
           (v0Momentum * flightLength)
         : -2.;
-
-    const bool unlikeSign =
-      charge1 * charge2 < 0;
-
-    const bool likeSign =
-      charge1 * charge2 > 0;
 
     double positivePt = -1.;
     double negativePt = -1.;
@@ -1788,6 +1799,25 @@ void MakeK0sPairHistograms_MomentumScaleMap(
                    selection.protonDedxMin,
                    selection.protonDedxMax);
 
+      const bool likeLambdaDedxPass =
+        likeSign &&
+        passesDedx(likeSignProtonDedx,
+                   selection.protonDedxMin,
+                   selection.protonDedxMax) &&
+        passesDedx(likeSignPionDedx,
+                   selection.pionDedxMin,
+                   selection.pionDedxMax);
+
+      const bool treeAllowsKshort =
+        !fromLikeSignTree ||
+        (candidate_mask & kCandidateKShort) != 0U;
+
+      const bool treeAllowsLambda =
+        !fromLikeSignTree ||
+        (charge1 + charge2 > 0.0
+           ? (candidate_mask & kCandidateLambda) != 0U
+           : (candidate_mask & kCandidateAntiLambda) != 0U);
+
       //if (!passV0DeltaPhi)
       //{
       //  continue;
@@ -1825,18 +1855,20 @@ void MakeK0sPairHistograms_MomentumScaleMap(
             .at(selection.name)
             .at(chargeName(category));
 
-        if (kshortDedxPass && passV0DeltaPhi)
+        if (treeAllowsKshort &&
+            kshortDedxPass &&
+            passV0DeltaPhi)
         {
-          h.h_k0s_mass->Fill(correctedMassKshort);
-          h.h_k0s_mass_vs_v0pt->Fill(correctedV0Pt, correctedMassKshort);
-          h.h3_k0s->Fill(correctedV0Pt, correctedMassKshort, absPairDCA);
+          h.h_k0s_mass->Fill(mass_Kshort);
+          h.h_k0s_mass_vs_v0pt->Fill(v0_pt, mass_Kshort);
+          h.h3_k0s->Fill(v0_pt, mass_Kshort, absPairDCA);
           h.h3_k0s_pt1_vs_pt2_vs_mass->Fill(
-            pt1, pt2, correctedMassKshort);
+            pt1, pt2, mass_Kshort);
 
           if (category == ChargeCategory::Unlike)
           {
             h.h3_k0s_ptplus_vs_ptminus_vs_mass->Fill(
-              positivePt, negativePt, correctedMassKshort);
+              positivePt, negativePt, mass_Kshort);
           }
         }
 
@@ -1846,144 +1878,333 @@ void MakeK0sPairHistograms_MomentumScaleMap(
         h.h_pair_dca_vs_delta_pca_z->Fill(
           absDeltaPcaZ, absPairDCA);
 
-        // Lambda and anti-Lambda are physically meaningful only
-        // for unlike-sign pairs.
         if (category == ChargeCategory::Unlike)
         {
-          if (lambdaProtonPtPass && lambdaDedxPass && passV0DeltaPhi)
+          if (lambdaProtonPtPass &&
+              lambdaDedxPass &&
+              passV0DeltaPhi)
           {
-            h.h_lambda_mass->Fill(correctedMassLambda);
+            h.h_lambda_mass->Fill(mass_Lambda);
             h.h_lambda_mass_vs_v0pt->Fill(
-              correctedV0Pt, correctedMassLambda);
+              v0_pt, mass_Lambda);
 
             h.h3_lambda->Fill(
-              correctedV0Pt, correctedMassLambda, absPairDCA);
+              v0_pt, mass_Lambda, absPairDCA);
           }
 
-          if (antiLambdaProtonPtPass && antiLambdaDedxPass && passV0DeltaPhi)
+          if (antiLambdaProtonPtPass &&
+              antiLambdaDedxPass &&
+              passV0DeltaPhi)
           {
-            h.h_antilambda_mass->Fill(correctedMassAntiLambda);
+            h.h_antilambda_mass->Fill(mass_AntiLambda);
             h.h_antilambda_mass_vs_v0pt->Fill(
-              correctedV0Pt, correctedMassAntiLambda);
+              v0_pt, mass_AntiLambda);
 
             h.h3_antilambda->Fill(
-              correctedV0Pt, correctedMassAntiLambda, absPairDCA);
+              v0_pt, mass_AntiLambda, absPairDCA);
+          }
+        }
+        else if (treeAllowsLambda &&
+                 likeLambdaDedxPass &&
+                 passV0DeltaPhi)
+        {
+          // The separate like-sign tree stores both p-pi assignments.
+          // Use one unique background mass per pair by assigning the proton
+          // hypothesis to the higher-pT daughter.
+          if (charge1 + charge2 > 0.0)
+          {
+            h.h_lambda_mass->Fill(
+              likeSignLambdaMass);
+
+            h.h_lambda_mass_vs_v0pt->Fill(
+              v0_pt,
+              likeSignLambdaMass);
+
+            h.h3_lambda->Fill(
+              v0_pt,
+              likeSignLambdaMass,
+              absPairDCA);
+          }
+          else
+          {
+            h.h_antilambda_mass->Fill(
+              likeSignLambdaMass);
+
+            h.h_antilambda_mass_vs_v0pt->Fill(
+              v0_pt,
+              likeSignLambdaMass);
+
+            h.h3_antilambda->Fill(
+              v0_pt,
+              likeSignLambdaMass,
+              absPairDCA);
           }
         }
       }
     }
 
-    // Prompt phi and D0/anti-D0 QA.
-    // Physical prompt candidates are unlike-sign. The present reconstruction
-    // retains same-sign rows only through the K0S background path, so those
-    // rows are not an unbiased prompt like-sign sample and are not filled here.
-    for (const auto& promptSelection : promptSelections)
+    // Prompt phi and D0/anti-D0 QA. The same filling logic is run for:
+    //   1. ordinary primary-PCA momenta;
+    //   2. forced-primary-vertex-constrained momenta.
+    //
+    // Unlike-sign rows come from pairTree. Like-sign rows come exclusively
+    // from likeSignPairTree and use the explicit track-order K-pi assignments.
+    auto fillPromptHistograms =
+      [&](std::map<std::string,
+                   std::map<std::string, HistSet>>& targetHistograms,
+          const bool kinematicsFinite,
+          const double localDaughterPtMin,
+          const double localPairPt,
+          const double localMassPhi,
+          const double localMassD0,
+          const double localMassAntiD0,
+          const double localMassK1Pi2,
+          const double localMassPi1K2)
+      {
+        if (!kinematicsFinite)
+        {
+          return;
+        }
+
+        for (const auto& promptSelection : promptSelections)
+        {
+          const bool phiDedxPass =
+            passesDedx(
+              dedx_1,
+              promptSelection.kaonDedxMin,
+              promptSelection.kaonDedxMax) &&
+            passesDedx(
+              dedx_2,
+              promptSelection.kaonDedxMin,
+              promptSelection.kaonDedxMax);
+
+          const bool d0DedxPass =
+            unlikeSign &&
+            passesDedx(
+              positiveDedx,
+              promptSelection.pionDedxMin,
+              promptSelection.pionDedxMax) &&
+            passesDedx(
+              negativeDedx,
+              promptSelection.kaonDedxMin,
+              promptSelection.kaonDedxMax);
+
+          const bool antiD0DedxPass =
+            unlikeSign &&
+            passesDedx(
+              positiveDedx,
+              promptSelection.kaonDedxMin,
+              promptSelection.kaonDedxMax) &&
+            passesDedx(
+              negativeDedx,
+              promptSelection.pionDedxMin,
+              promptSelection.pionDedxMax);
+
+          const bool likeK1Pi2DedxPass =
+            likeSign &&
+            passesDedx(
+              dedx_1,
+              promptSelection.kaonDedxMin,
+              promptSelection.kaonDedxMax) &&
+            passesDedx(
+              dedx_2,
+              promptSelection.pionDedxMin,
+              promptSelection.pionDedxMax);
+
+          const bool likePi1K2DedxPass =
+            likeSign &&
+            passesDedx(
+              dedx_1,
+              promptSelection.pionDedxMin,
+              promptSelection.pionDedxMax) &&
+            passesDedx(
+              dedx_2,
+              promptSelection.kaonDedxMin,
+              promptSelection.kaonDedxMax);
+
+          if (!passesPromptSelection(
+                promptSelection,
+                localDaughterPtMin,
+                ntpcClustersMin,
+                qualityMax,
+                maxAbsTrackDcaXY,
+                maxAbsTrackDcaZ,
+                maxAbsPrimaryPcaZ,
+                absDeltaPrimaryPcaZ,
+                absPromptPairDCA))
+          {
+            continue;
+          }
+
+          const bool treeAllowsPhi =
+            !fromLikeSignTree ||
+            (candidate_mask & kCandidatePhi) != 0U;
+
+          const bool treeAllowsD0 =
+            !fromLikeSignTree ||
+            (candidate_mask & kCandidateD0) != 0U;
+
+          const bool treeAllowsAntiD0 =
+            !fromLikeSignTree ||
+            (candidate_mask & kCandidateAntiD0) != 0U;
+
+          for (const auto category : categories)
+          {
+            HistSet& h =
+              targetHistograms
+                .at(promptSelection.name)
+                .at(chargeName(category));
+
+            if (treeAllowsPhi &&
+                phiDedxPass &&
+                std::isfinite(localMassPhi))
+            {
+              h.h_phi_mass->Fill(
+                localMassPhi);
+
+              h.h_phi_mass_vs_v0pt->Fill(
+                localPairPt,
+                localMassPhi);
+
+              if (std::isfinite(absPromptPairDCA))
+              {
+                h.h3_phi->Fill(
+                  localPairPt,
+                  localMassPhi,
+                  absPromptPairDCA);
+              }
+            }
+
+            h.h_primary_pca_dz->Fill(
+              absDeltaPrimaryPcaZ);
+
+            h.h_primary_pca_z1_vs_z2->Fill(
+              primary_pca1_z,
+              primary_pca2_z);
+
+            h.h_max_dca_xy_vs_primary_pca_dz->Fill(
+              absDeltaPrimaryPcaZ,
+              maxAbsTrackDcaXY);
+
+            if (std::isfinite(absPromptPairDCA))
+            {
+              h.h_pair_dca_vs_delta_pca_z->Fill(
+                absDeltaPrimaryPcaZ,
+                absPromptPairDCA);
+            }
+
+            if (category == ChargeCategory::Unlike)
+            {
+              if (d0DedxPass &&
+                  std::isfinite(localMassD0))
+              {
+                h.h_d0_mass->Fill(
+                  localMassD0);
+
+                h.h_d0_mass_vs_v0pt->Fill(
+                  localPairPt,
+                  localMassD0);
+
+                if (std::isfinite(absPromptPairDCA))
+                {
+                  h.h3_d0->Fill(
+                    localPairPt,
+                    localMassD0,
+                    absPromptPairDCA);
+                }
+              }
+
+              if (antiD0DedxPass &&
+                  std::isfinite(localMassAntiD0))
+              {
+                h.h_antid0_mass->Fill(
+                  localMassAntiD0);
+
+                h.h_antid0_mass_vs_v0pt->Fill(
+                  localPairPt,
+                  localMassAntiD0);
+
+                if (std::isfinite(absPromptPairDCA))
+                {
+                  h.h3_antid0->Fill(
+                    localPairPt,
+                    localMassAntiD0,
+                    absPromptPairDCA);
+                }
+              }
+            }
+            else
+            {
+              // Same-sign D0 background has no charge-defined K/pi ordering.
+              // Keep both explicit track-order assignments in separate
+              // D0-like and anti-D0-like histograms.
+              if (treeAllowsD0 &&
+                  likeK1Pi2DedxPass &&
+                  std::isfinite(localMassK1Pi2))
+              {
+                h.h_d0_mass->Fill(
+                  localMassK1Pi2);
+
+                h.h_d0_mass_vs_v0pt->Fill(
+                  localPairPt,
+                  localMassK1Pi2);
+
+                if (std::isfinite(absPromptPairDCA))
+                {
+                  h.h3_d0->Fill(
+                    localPairPt,
+                    localMassK1Pi2,
+                    absPromptPairDCA);
+                }
+              }
+
+              if (treeAllowsAntiD0 &&
+                  likePi1K2DedxPass &&
+                  std::isfinite(localMassPi1K2))
+              {
+                h.h_antid0_mass->Fill(
+                  localMassPi1K2);
+
+                h.h_antid0_mass_vs_v0pt->Fill(
+                  localPairPt,
+                  localMassPi1K2);
+
+                if (std::isfinite(absPromptPairDCA))
+                {
+                  h.h3_antid0->Fill(
+                    localPairPt,
+                    localMassPi1K2,
+                    absPromptPairDCA);
+                }
+              }
+            }
+          }
+        }
+      };
+
+    fillPromptHistograms(
+      promptHistograms,
+      promptKinematicsFinite,
+      promptDaughterPtMin,
+      promptPairPt,
+      promptMassPhi,
+      promptMassD0,
+      promptMassAntiD0,
+      promptMassK1Pi2,
+      promptMassPi1K2);
+
+    if (includePrimaryConstrainedPrompt)
     {
-      const bool phiDedxPass =
-        passesDedx(dedx_1,
-                   promptSelection.kaonDedxMin,
-                   promptSelection.kaonDedxMax) &&
-        passesDedx(dedx_2,
-                   promptSelection.kaonDedxMin,
-                   promptSelection.kaonDedxMax);
-
-      const bool d0DedxPass =
-        unlikeSign &&
-        passesDedx(positiveDedx,
-                   promptSelection.pionDedxMin,
-                   promptSelection.pionDedxMax) &&
-        passesDedx(negativeDedx,
-                   promptSelection.kaonDedxMin,
-                   promptSelection.kaonDedxMax);
-
-      const bool antiD0DedxPass =
-        unlikeSign &&
-        passesDedx(positiveDedx,
-                   promptSelection.kaonDedxMin,
-                   promptSelection.kaonDedxMax) &&
-        passesDedx(negativeDedx,
-                   promptSelection.pionDedxMin,
-                   promptSelection.pionDedxMax);
-
-      if (!promptKinematicsFinite ||
-          !passesPromptSelection(
-            promptSelection,
-            promptDaughterPtMin,
-            ntpcClustersMin,
-            qualityMax,
-            maxAbsTrackDcaXY,
-            maxAbsTrackDcaZ,
-            maxAbsPrimaryPcaZ,
-            absDeltaPrimaryPcaZ,
-            absPromptPairDCA))
-      {
-        continue;
-      }
-
-      for (const auto category : categories)
-      {
-        if (category != ChargeCategory::Unlike)
-        {
-          continue;
-        }
-
-        HistSet& h =
-          promptHistograms
-            .at(promptSelection.name)
-            .at(chargeName(category));
-
-        if (phiDedxPass)
-        {
-          h.h_phi_mass->Fill(promptMassPhi);
-          h.h_phi_mass_vs_v0pt->Fill(
-            promptPairPt, promptMassPhi);
-
-          if (std::isfinite(absPromptPairDCA))
-          {
-            h.h3_phi->Fill(
-              promptPairPt, promptMassPhi, absPromptPairDCA);
-          }
-        }
-
-        h.h_primary_pca_dz->Fill(absDeltaPrimaryPcaZ);
-        h.h_primary_pca_z1_vs_z2->Fill(
-          primary_pca1_z, primary_pca2_z);
-        h.h_max_dca_xy_vs_primary_pca_dz->Fill(
-          absDeltaPrimaryPcaZ, maxAbsTrackDcaXY);
-
-        if (std::isfinite(absPromptPairDCA))
-        {
-          h.h_pair_dca_vs_delta_pca_z->Fill(
-            absDeltaPrimaryPcaZ, absPromptPairDCA);
-        }
-
-        if (category == ChargeCategory::Unlike)
-        {
-          if (d0DedxPass)
-          {
-            h.h_d0_mass->Fill(promptMassD0);
-            h.h_d0_mass_vs_v0pt->Fill(
-              promptPairPt, promptMassD0);
-            if (std::isfinite(absPromptPairDCA))
-            {
-              h.h3_d0->Fill(
-                promptPairPt, promptMassD0, absPromptPairDCA);
-            }
-          }
-
-          if (antiD0DedxPass)
-          {
-            h.h_antid0_mass->Fill(promptMassAntiD0);
-            h.h_antid0_mass_vs_v0pt->Fill(
-              promptPairPt, promptMassAntiD0);
-            if (std::isfinite(absPromptPairDCA))
-            {
-              h.h3_antid0->Fill(
-                promptPairPt, promptMassAntiD0, absPromptPairDCA);
-            }
-          }
-        }
-      }
+      fillPromptHistograms(
+        promptConstrainedHistograms,
+        constrainedPromptKinematicsFinite,
+        constrainedPromptDaughterPtMin,
+        constrainedPromptPairPt,
+        constrainedPromptMassPhi,
+        constrainedPromptMassD0,
+        constrainedPromptMassAntiD0,
+        constrainedPromptMassK1Pi2,
+        constrainedPromptMassPi1K2);
     }
 
     const bool exactKshortDedxPass =
@@ -1995,6 +2216,20 @@ void MakeK0sPairHistograms_MomentumScaleMap(
 
     const bool exactAntiLambdaDedxPass =
       unlikeSign && passesDedx(positiveDedx, -1.0, 400.0);
+
+    const bool exactLikeLambdaDedxPass =
+      likeSign &&
+      passesDedx(likeSignPionDedx, -1.0, 400.0);
+
+    const bool exactTreeAllowsKshort =
+      !fromLikeSignTree ||
+      (candidate_mask & kCandidateKShort) != 0U;
+
+    const bool exactTreeAllowsLambda =
+      !fromLikeSignTree ||
+      (charge1 + charge2 > 0.0
+         ? (candidate_mask & kCandidateLambda) != 0U
+         : (candidate_mask & kCandidateAntiLambda) != 0U);
 
     const std::vector<std::pair<std::string, bool>> exactPasses = {
       {"exactCut1", exactCut1},
@@ -2016,18 +2251,19 @@ void MakeK0sPairHistograms_MomentumScaleMap(
             .at(exactPass.first)
             .at(chargeName(category));
 
-        if (exactKshortDedxPass)
+        if (exactTreeAllowsKshort &&
+            exactKshortDedxPass)
         {
-          h.h_k0s_mass->Fill(correctedMassKshort);
-          h.h_k0s_mass_vs_v0pt->Fill(correctedV0Pt, correctedMassKshort);
-          h.h3_k0s->Fill(correctedV0Pt, correctedMassKshort, absPairDCA);
+          h.h_k0s_mass->Fill(mass_Kshort);
+          h.h_k0s_mass_vs_v0pt->Fill(v0_pt, mass_Kshort);
+          h.h3_k0s->Fill(v0_pt, mass_Kshort, absPairDCA);
           h.h3_k0s_pt1_vs_pt2_vs_mass->Fill(
-            pt1, pt2, correctedMassKshort);
+            pt1, pt2, mass_Kshort);
 
           if (category == ChargeCategory::Unlike)
           {
             h.h3_k0s_ptplus_vs_ptminus_vs_mass->Fill(
-              positivePt, negativePt, correctedMassKshort);
+              positivePt, negativePt, mass_Kshort);
           }
         }
 
@@ -2037,19 +2273,62 @@ void MakeK0sPairHistograms_MomentumScaleMap(
 
         if (category == ChargeCategory::Unlike)
         {
-          if (lambdaProtonPtPass && exactLambdaDedxPass)
+          if (lambdaProtonPtPass &&
+              exactLambdaDedxPass)
           {
-            h.h_lambda_mass->Fill(correctedMassLambda);
-            h.h_lambda_mass_vs_v0pt->Fill(correctedV0Pt, correctedMassLambda);
-            h.h3_lambda->Fill(correctedV0Pt, correctedMassLambda, absPairDCA);
+            h.h_lambda_mass->Fill(mass_Lambda);
+            h.h_lambda_mass_vs_v0pt->Fill(
+              v0_pt,
+              mass_Lambda);
+            h.h3_lambda->Fill(
+              v0_pt,
+              mass_Lambda,
+              absPairDCA);
           }
 
-          if (antiLambdaProtonPtPass && exactAntiLambdaDedxPass)
+          if (antiLambdaProtonPtPass &&
+              exactAntiLambdaDedxPass)
           {
-            h.h_antilambda_mass->Fill(correctedMassAntiLambda);
-            h.h_antilambda_mass_vs_v0pt->Fill(correctedV0Pt, correctedMassAntiLambda);
+            h.h_antilambda_mass->Fill(mass_AntiLambda);
+            h.h_antilambda_mass_vs_v0pt->Fill(
+              v0_pt,
+              mass_AntiLambda);
             h.h3_antilambda->Fill(
-              correctedV0Pt, correctedMassAntiLambda, absPairDCA);
+              v0_pt,
+              mass_AntiLambda,
+              absPairDCA);
+          }
+        }
+        else if (exactTreeAllowsLambda &&
+                 exactLikeLambdaDedxPass)
+        {
+          if (charge1 + charge2 > 0.0)
+          {
+            h.h_lambda_mass->Fill(
+              likeSignLambdaMass);
+
+            h.h_lambda_mass_vs_v0pt->Fill(
+              v0_pt,
+              likeSignLambdaMass);
+
+            h.h3_lambda->Fill(
+              v0_pt,
+              likeSignLambdaMass,
+              absPairDCA);
+          }
+          else
+          {
+            h.h_antilambda_mass->Fill(
+              likeSignLambdaMass);
+
+            h.h_antilambda_mass_vs_v0pt->Fill(
+              v0_pt,
+              likeSignLambdaMass);
+
+            h.h3_antilambda->Fill(
+              v0_pt,
+              likeSignLambdaMass,
+              absPairDCA);
           }
         }
       }

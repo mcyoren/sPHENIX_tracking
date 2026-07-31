@@ -127,6 +127,7 @@ namespace
     TH2F* massRecalc = nullptr;
     TH2F* massDifference = nullptr;
     TH3F* deltaPhiVsMassVsPt = nullptr;
+    TH3F* decayRVsMassVsPt = nullptr;
     TH2F* massvsPtminusoverPtplus = nullptr;
   };
 
@@ -169,6 +170,8 @@ namespace
     h.massRecalc    = bookMassVs(dir, "h_stored_mass_vs_recalculated_mass", "recalculated m_{#pi#pi} [GeV/c^{2}]", 300, 0.42, 0.57);
     h.deltaPhiVsMassVsPt = new TH3F("h_delta_phi_vs_mass_vs_pt", "K^{0}_{S} #Delta#phi_{+-} vs m_{#pi#pi} vs p_{T}^{V0}; m_{#pi#pi} [GeV/c^{2}]; p_{T}^{V0} [GeV/c]; #Delta#phi_{+-} [rad]",
       300, 0.42, 0.57, 50, 0., 5., 144, -TMath::Pi(), TMath::Pi());
+    h.decayRVsMassVsPt = new TH3F("h_decay_radius_vs_mass_vs_pt", "K^{0}_{S} decay radius vs m_{#pi#pi} vs p_{T}^{V0}; m_{#pi#pi} [GeV/c^{2}]; p_{T}^{V0} [GeV/c]; decay radius [cm]",
+      300, 0.42, 0.57, 50, 0., 5., 120, 0., 80.);
     h.massDifference= bookMassVs(dir, "h_mass_vs_stored_minus_recalculated", "stored mass - recalculated mass [GeV/c^{2}]", 200, -0.02, 0.02);
     h.massvsPtminusoverPtplus = bookMassVs(dir, "h_mass_vs_pt_minus_over_pt_plus", "p_{T}^{-}/p_{T}^{+}", 100, 0., 5.0);
     return h;
@@ -227,6 +230,7 @@ namespace
     h.massDifference->Fill(mass - massRecalc, mass);
     h.massvsPtminusoverPtplus->Fill(ptNeg / ptPos, mass);
     //h.deltaPhiVsMassVsPt->Fill(mass, v0Pt, wrapPhi(phiPos - phiNeg));
+    h.decayRVsMassVsPt->Fill(mass, v0Pt, decayR);
   }
 
   struct WindowMaps
@@ -234,6 +238,7 @@ namespace
     TH2F* phiPosVsPhiNeg = nullptr;
     TH2F* ptPosVsPtNeg = nullptr;
     TH2F* etaPosVsEtaNeg = nullptr;
+    TH3F* decayRVsMassVsPt = nullptr;
     TH2F* decayPhiVsR = nullptr;
     TH2F* v0PhiVsPt = nullptr;
     TH2F* phiPosVsPtPos = nullptr;
@@ -253,6 +258,9 @@ namespace
     h.etaPosVsEtaNeg = new TH2F("h_eta_positive_vs_eta_negative",
       TString::Format("%s;#eta^{-};#eta^{+}", label),
       120, -1.5, 1.5, 120, -1.5, 1.5);
+    h.decayRVsMassVsPt = new TH3F("h_decay_radius_vs_mass_vs_pt",
+      TString::Format("%s; m_{#pi#pi} [GeV/c^{2}]; p_{T}^{V0} [GeV/c]; decay radius [cm]", label),
+      300, 0.42, 0.57, 50, 0., 5., 120, 0., 80.);
     h.decayPhiVsR = new TH2F("h_decay_phi_vs_radius",
       TString::Format("%s;decay radius [cm];#phi_{decay} [rad]", label),
       120, 0., 80., 144, -TMath::Pi(), TMath::Pi());
@@ -402,6 +410,9 @@ void StudyK0sDoublePeakQA(const char* inputDir = ".",
     chain.GetEntry(entry);
     if (entry % 1000000 == 0)
       std::cout << "Processing " << entry << " / " << nEntries << std::endl;
+    
+    quality1 *=0.1;
+    quality2 *=0.1;
 
     const double pt1 = std::hypot(px1, py1);
     const double pt2 = std::hypot(px2, py2);
