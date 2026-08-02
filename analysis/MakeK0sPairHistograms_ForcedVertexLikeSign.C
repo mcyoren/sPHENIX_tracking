@@ -1011,6 +1011,12 @@ void MakeK0sPairHistograms(
       : "secondary pair-PCA daughter momenta");
   promptKinematicsInfo.Write();
 
+  TNamed likeSignDeltaPhiInfo(
+    "likesign_v0_delta_phi",
+    "signed V0 Delta-phi cut is applied only to unlike-sign pairs; "
+    "like-sign K0S/Lambda backgrounds are not rejected by that charge-ordered cut");
+  likeSignDeltaPhiInfo.Write();
+
   TNamed constrainedPromptInfo(
     "primary_constrained_prompt_kinematics",
     includePrimaryConstrainedPrompt
@@ -1135,43 +1141,43 @@ void MakeK0sPairHistograms(
   const std::vector<PromptSelection> promptSelections = {
     {
       "primary_dz_2p0",
-      "primary momenta, pT>0.40, nTPC>=20, quality<20, |DCAxy|<3, "
+      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<2.0; DCAz/PID/prompt-pair-DCA disabled",
-      0.40, 20, 20.0, 3.0, -1.0, 20.0, 2.0, -1.0
+      0.20, 20, 20.0, 3.0, -1.0, 20.0, 2.0, -1.0
     },
     {
       "primary_dz_1p0",
-      "primary momenta, pT>0.40, nTPC>=20, quality<20, |DCAxy|<3, "
+      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<1.0; DCAz/PID/prompt-pair-DCA disabled",
-      0.40, 20, 20.0, 3.0, -1.0, 20.0, 1.0, -1.0
+      0.20, 20, 20.0, 3.0, -1.0, 20.0, 1.0, -1.0
     },
     {
       "primary_dz_0p5",
-      "primary momenta, pT>0.40, nTPC>=20, quality<20, |DCAxy|<3, "
+      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<0.5; DCAz/PID/prompt-pair-DCA disabled",
-      0.40, 20, 20.0, 3.0, -1.0, 20.0, 0.5, -1.0
+      0.20, 20, 20.0, 3.0, -1.0, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p2",
-      "primary momenta, pT>0.40, nTPC>=20, quality<20, |DCAxy|<3, "
+      "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<0.2; DCAz/PID/prompt-pair-DCA disabled",
-      0.40, 20, 20.0, 3.0, -1.0, 20.0, 0.2, -1.0
+      0.20, 20, 20.0, 3.0, -1.0, 20.0, 0.2, -1.0
     },
     {
       "primary_dz_0p5_track",
-      "primary momenta, pT>0.50, nTPC>=30, quality<15, |DCAxy|<1, "
+      "primary momenta, pT>0.30, nTPC>=30, quality<15, |DCAxy|<1, "
       "|primary PCA z|<20, |Delta primary PCA z|<0.5",
-      0.50, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0
+      0.30, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p5_dcaz2",
       "same as primary_dz_0p5_track plus |DCAz to fixed z=0|<2; diagnostic only",
-      0.40, 30, 15.0, 1.0, 2.0, 20.0, 0.5, -1.0
+      0.30, 30, 15.0, 1.0, 2.0, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p5_pid",
       "same as primary_dz_0p5_track plus pion dE/dx<300 and kaon dE/dx>300",
-      0.40, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0,
+      0.30, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0,
       -1.0, 300.0, 300.0, -1.0
     }
   };
@@ -1394,12 +1400,50 @@ void MakeK0sPairHistograms(
     }
     else
     {
-      deltaPhi =
-        std::abs(wrapPhi(phi1 - phi2));
+      ////for k0s it just random phi-phi, for Lambda phi of proton is phiPositive and for anti-Lambda phi of proton is phiNegative
+      if (mass_Kshort > 0.4 && mass_Kshort < 0.6)
+      {
+        deltaPhi = -(wrapPhi(phi1 - phi2));
+      }
+      else if (mass_Lambda > 1.0 && mass_Lambda < 1.3)
+      {
+        const double phiProton =
+          sqrt(px1*px1 + py1*py1) > sqrt(px2*px2 + py2*py2) ? phi1 : phi2;
+
+        const double phiPion = 
+          sqrt(px1*px1 + py1*py1) > sqrt(px2*px2 + py2*py2) ? phi2 : phi1;
+        
+        deltaPhi =
+          wrapPhi(phiProton - phiPion);
+      }
+      else if (mass_AntiLambda > 1.0 && mass_AntiLambda < 1.3)
+      {
+        const double phiProton =
+          sqrt(px1*px1 + py1*py1) > sqrt(px2*px2 + py2*py2) ? phi2 : phi1;
+
+        const double phiPion = 
+          sqrt(px1*px1 + py1*py1) > sqrt(px2*px2 + py2*py2) ? phi1 : phi2;
+
+        deltaPhi =
+          wrapPhi(phiProton - phiPion);
+      }
+      else
+      {
+        deltaPhi = (wrapPhi(phi1 - phi2));
+      }
     }
 
     const bool passV0DeltaPhi =
       deltaPhi >= deltaPhiThreshold;
+
+    // The signed Delta-phi requirement was designed for unlike-sign V0
+    // daughters, where positive and negative tracks have a physical ordering.
+    // A like-sign pair has no positive-versus-negative daughter assignment, so
+    // applying the same signed requirement can remove essentially all K0S
+    // background candidates.  Keep the cut for unlike-sign signal candidates
+    // and do not apply it to rows read from likeSignPairTree.
+    const bool passV0DeltaPhiForV0 = passV0DeltaPhi;
+      //unlikeSign ? passV0DeltaPhi : mass_Kshort > .4 && mass_Kshort < .6 ? true : passV0DeltaPhi;
 
     // Secondary pair-PCA kinematics: always used for K0S/Lambda.
     const double pt1 =
@@ -1724,7 +1768,7 @@ void MakeK0sPairHistograms(
     const int effectiveNpoints2 = npoints2;
 
     const bool exactCut1 =
-      passV0DeltaPhi &&
+      passV0DeltaPhiForV0 &&
       pca_z > -15.f && pca_z < 15.f &&
       absDeltaPcaZ < 0.5 &&
       pt1 > 0.3 && pt2 > 0.3 &&
@@ -1736,7 +1780,7 @@ void MakeK0sPairHistograms(
       quality1 < 20.0 && quality2 < 20.0;
 
     const bool exactCut2 =
-      passV0DeltaPhi &&
+      passV0DeltaPhiForV0 &&
       pca_z > -15.f && pca_z < 0.f &&
       absDeltaPcaZ < 0.5 &&
       pt1 > 0.3 && pt2 > 0.3 &&
@@ -1748,7 +1792,7 @@ void MakeK0sPairHistograms(
       effectiveNpoints1 > 30 && effectiveNpoints2 > 30;
 
     const bool exactCut3 =
-      passV0DeltaPhi &&
+      passV0DeltaPhiForV0 &&
       pca_z > -15.f && pca_z < 0.f &&
       absDeltaPcaZ < 1.0 &&
       pt1 > 0.3 && pt2 > 0.3 &&
@@ -1857,7 +1901,7 @@ void MakeK0sPairHistograms(
 
         if (treeAllowsKshort &&
             kshortDedxPass &&
-            passV0DeltaPhi)
+            passV0DeltaPhiForV0)
         {
           h.h_k0s_mass->Fill(mass_Kshort);
           h.h_k0s_mass_vs_v0pt->Fill(v0_pt, mass_Kshort);
@@ -1906,7 +1950,7 @@ void MakeK0sPairHistograms(
         }
         else if (treeAllowsLambda &&
                  likeLambdaDedxPass &&
-                 passV0DeltaPhi)
+                 passV0DeltaPhiForV0)
         {
           // The separate like-sign tree stores both p-pi assignments.
           // Use one unique background mass per pair by assigning the proton
