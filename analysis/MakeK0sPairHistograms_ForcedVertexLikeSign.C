@@ -140,6 +140,10 @@ namespace
     TH3F* h3_d0 = nullptr;
     TH3F* h3_antid0 = nullptr;
 
+    TH3F* h3_k0s_crossing_ptv0 = nullptr;
+    TH3F* h3_lambda_crossing_ptv0 = nullptr;
+    TH3F* h3_antilambda_crossing_ptv0 = nullptr;
+
     // Daughter pT correlations versus K0S invariant mass.
     TH3F* h3_k0s_pt1_vs_pt2_vs_mass = nullptr;
     TH3F* h3_k0s_ptplus_vs_ptminus_vs_mass = nullptr;
@@ -231,14 +235,14 @@ namespace
     {
       result.push_back(ChargeCategory::Like);
 
-      if (charge1 > 0. && charge2 > 0.)
-      {
-        result.push_back(ChargeCategory::PlusPlus);
-      }
-      else if (charge1 < 0. && charge2 < 0.)
-      {
-        result.push_back(ChargeCategory::MinusMinus);
-      }
+      //if (charge1 > 0. && charge2 > 0.)
+      //{
+      //  result.push_back(ChargeCategory::PlusPlus);
+      //}
+      //else if (charge1 < 0. && charge2 < 0.)
+      //{
+      //  result.push_back(ChargeCategory::MinusMinus);
+      //}
     }
 
     return result;
@@ -434,6 +438,29 @@ namespace
       30, 0.0, 5.0,
       90, 1.70, 2.05,
       20, 0.0, 2.0);
+
+    h.h3_k0s_crossing_ptv0 = new TH3F(
+      "h3_Kshort_crossing_pt_vs_v0_pt_vs_mass",
+      "K^{0}_{S}: crossing p_{T} vs V0 p_{T} vs mass" + tag +
+        ";crossing;p_{T}^{V0} [GeV/c];m_{#pi^{+}#pi^{-}} [GeV/c^{2}]",
+      600, -120, 480,
+      10, 0.5, 5.5,
+      100, 0.4, 0.6);
+
+    h.h3_lambda_crossing_ptv0 = new TH3F(
+      "h3_Lambda_crossing_pt_vs_v0_pt_vs_mass",
+      "#Lambda: crossing p_{T} vs V0 p_{T} vs mass" + tag +
+        ";crossing;p_{T}^{V0} [GeV/c];m_{p#pi^{-}} [GeV/c^{2}]",
+      600, -120, 480,
+      10, 0.5, 5.5,
+      100, 1.05, 1.25);
+    h.h3_antilambda_crossing_ptv0 = new TH3F(
+      "h3_AntiLambda_crossing_pt_vs_v0_pt_vs_mass",
+      "#bar{#Lambda}: crossing p_{T} vs V0 p_{T} vs mass" + tag +
+        ";crossing;p_{T}^{V0} [GeV/c];m_{#bar{p}#pi^{+}} [GeV/c^{2}]",
+      600, -120, 480,
+      10, 0.5, 5.5,
+      100, 1.05, 1.25);
 
     return h;
   }
@@ -807,6 +834,9 @@ void MakeK0sPairHistograms(
   UInt_t ntpc_clusters1 = 0;
   UInt_t ntpc_clusters2 = 0;
 
+  Short_t crossing1 = 0;
+  Short_t crossing2 = 0;
+
 
   chain.SetBranchAddress("mass_Kshort", &mass_Kshort);
   chain.SetBranchAddress("mass_Lambda", &mass_Lambda);
@@ -825,6 +855,9 @@ void MakeK0sPairHistograms(
   chain.SetBranchAddress("px2", &px2);
   chain.SetBranchAddress("py2", &py2);
   chain.SetBranchAddress("pz2", &pz2);
+
+  chain.SetBranchAddress("crossing1", &crossing1);
+  chain.SetBranchAddress("crossing2", &crossing2);
 
   if (usePrimaryVertexKinematicsForPrompt || includePrimaryConstrainedPrompt)
   {
@@ -1143,41 +1176,41 @@ void MakeK0sPairHistograms(
       "primary_dz_2p0",
       "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<2.0; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 2.0, -1.0
+      0.80, 20, 20.0, 3.0, -1.0, 20.0, 2.0, -1.0
     },
     {
       "primary_dz_1p0",
       "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<1.0; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 1.0, -1.0
+      0.80, 20, 20.0, 3.0, -1.0, 20.0, 1.0, -1.0
     },
     {
       "primary_dz_0p5",
       "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<0.5; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 0.5, -1.0
+      0.80, 20, 20.0, 3.0, -1.0, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p2",
       "primary momenta, pT>0.20, nTPC>=20, quality<20, |DCAxy|<3, "
       "|primary PCA z|<20, |Delta primary PCA z|<0.2; DCAz/PID/prompt-pair-DCA disabled",
-      0.20, 20, 20.0, 3.0, -1.0, 20.0, 0.2, -1.0
+      0.80, 20, 20.0, 3.0, -1.0, 20.0, 0.2, -1.0
     },
     {
       "primary_dz_0p5_track",
       "primary momenta, pT>0.30, nTPC>=30, quality<15, |DCAxy|<1, "
       "|primary PCA z|<20, |Delta primary PCA z|<0.5",
-      0.30, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0
+      0.80, 20, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p5_dcaz2",
       "same as primary_dz_0p5_track plus |DCAz to fixed z=0|<2; diagnostic only",
-      0.30, 30, 15.0, 1.0, 2.0, 20.0, 0.5, -1.0
+      0.80, 20, 15.0, 1.0, 0.1, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p5_pid",
       "same as primary_dz_0p5_track plus pion dE/dx<300 and kaon dE/dx>300",
-      0.30, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0,
+      0.20, 20, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0,
       -1.0, 300.0, 300.0, -1.0
     }
   };
@@ -1908,6 +1941,11 @@ void MakeK0sPairHistograms(
           h.h3_k0s->Fill(v0_pt, mass_Kshort, absPairDCA);
           h.h3_k0s_pt1_vs_pt2_vs_mass->Fill(
             pt1, pt2, mass_Kshort);
+            if (crossing1 == crossing2)
+            {
+              h.h3_k0s_crossing_ptv0->Fill(
+                crossing1, v0_pt, mass_Kshort);
+            }
 
           if (category == ChargeCategory::Unlike)
           {
@@ -1934,6 +1972,11 @@ void MakeK0sPairHistograms(
 
             h.h3_lambda->Fill(
               v0_pt, mass_Lambda, absPairDCA);
+            if (crossing1 == crossing2)
+            {
+              h.h3_lambda_crossing_ptv0->Fill(
+                crossing1, v0_pt, mass_Lambda);
+            }
           }
 
           if (antiLambdaProtonPtPass &&
@@ -1946,6 +1989,12 @@ void MakeK0sPairHistograms(
 
             h.h3_antilambda->Fill(
               v0_pt, mass_AntiLambda, absPairDCA);
+
+            if (crossing1 == crossing2)
+            {
+              h.h3_antilambda_crossing_ptv0->Fill(
+                crossing1, v0_pt, mass_AntiLambda);
+            }
           }
         }
         else if (treeAllowsLambda &&
