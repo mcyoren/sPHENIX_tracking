@@ -15,6 +15,11 @@ R__LOAD_LIBRARY(libTrackingDiagnostics.so)
 #include <iostream>
 #include <string>
 
+#include <fun4all/SubsysReco.h>
+#include <fun4all/Fun4AllReturnCodes.h>
+
+#include <phool/recoConsts.h>
+
 namespace
 {
   std::string env_string(const char *name, const std::string &fallback)
@@ -50,13 +55,13 @@ int Fun4All_TpcV0CandidateTree(
     const int skipEvents = 0,
     const bool apply_spatial_correction = true,
     const std::string &spatial_correction_file = "/sphenix/user/mitrankov/novel/coresoftware_TrackingDiagnostics/work/input/v0_spatial_map_transverse_only.root",
-    const bool apply_spatial_correction_z = false,
+    const bool apply_spatial_correction_z = true,
     const double spatial_correction_scale = 1.0)
 {
 
   auto *se = Fun4AllServer::instance();
   se->Verbosity(env_int("V0_SERVER_VERBOSITY", 0));
-
+  
   auto *v0 = new TpcV0CandidateTree("TpcV0CandidateTree", output_file);
   v0->Verbosity(env_int("V0_MODULE_VERBOSITY", 0));
 
@@ -305,21 +310,27 @@ int Fun4All_TpcV0CandidateTree(
   const bool legacy_same_sign = env_bool("V0_WRITE_SAME_SIGN", true);
   const bool write_likesign_tree =
       env_bool("V0_WRITE_LIKESIGN_TREE", legacy_same_sign);
-  v0->set_write_likesign_tree(write_likesign_tree);
+  v0->set_write_likesign_tree(true);
   v0->set_write_likesign_kshort(
-      env_bool("V0_WRITE_LIKESIGN_KSHORT", legacy_same_sign));
+      env_bool("V0_WRITE_LIKESIGN_KSHORT", true));//legacy_same_sign));
   v0->set_write_likesign_lambda(
-      env_bool("V0_WRITE_LIKESIGN_LAMBDA", false));
+      env_bool("V0_WRITE_LIKESIGN_LAMBDA", true));
   v0->set_write_likesign_phi(
-      env_bool("V0_WRITE_LIKESIGN_PHI", false));
+      env_bool("V0_WRITE_LIKESIGN_PHI", true));
   v0->set_write_likesign_d0(
-      env_bool("V0_WRITE_LIKESIGN_D0", false));
+      env_bool("V0_WRITE_LIKESIGN_D0", true));
   v0->set_likesign_keep_fraction(
       env_double("V0_LIKESIGN_KEEP_FRACTION", 1.0));
-
+  
+  
+  v0->set_tpc_crossing_decision_node("TPC_CROSSING_DECISIONS");
+  v0->set_require_same_crossing(true);
+  
+  
   // Full daughter cluster payload remains K0S-only. TrackTree is independent
   // and can be enabled for residual/DCA QA with V0_WRITE_TRACK_TREE=1.
-  v0->set_write_track_tree(env_bool("V0_WRITE_TRACK_TREE", false));
+  v0->set_write_track_tree(env_bool("V0_WRITE_TRACK_TREE", true));
+  v0->set_write_track_tree(true);
   v0->set_write_cluster_residual_tree(env_bool("V0_WRITE_CLUSTER_RESIDUAL_TREE", false));
   v0->set_write_kalman_innovation_diagnostics(env_bool("V0_WRITE_KALMAN_DIAGNOSTICS", true));
   v0->set_write_kshort_daughter_details(env_bool("V0_WRITE_KSHORT_DETAILS", true));
