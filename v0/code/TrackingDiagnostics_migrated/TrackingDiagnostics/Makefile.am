@@ -1,0 +1,87 @@
+AUTOMAKE_OPTIONS = foreign
+
+AM_CPPFLAGS = \
+  -I$(includedir) \
+  -isystem$(OFFLINE_MAIN)/include \
+  -isystem$(ROOTSYS)/include
+
+AM_LDFLAGS = \
+  -L$(libdir) \
+  -L$(OFFLINE_MAIN)/lib \
+  -L$(OFFLINE_MAIN)/lib64
+
+pkginclude_HEADERS = \
+  Tpc_ModuleTrackDisplay.h \
+  Tpc_AssembledTrackDisplay.h \
+  Tpc_PolyClusterDisplay.h \
+  Tpc_PolyClusterResiduals.h \
+  TpcV0CandidateTree.h \
+  TpcTrackFit.h \
+  TpcTrackHelixFitter.h \
+  TpcTrackKalmanFitter.h \
+  BeamCrossingAnalysis.h \
+  helixResiduals.h \
+  KshortReconstruction.h \
+  TrackContainerCombiner.h \
+  TrackResiduals.h \
+  TrackSeedTrackMapConverter.h \
+  TrkrNtuplizer.h
+
+lib_LTLIBRARIES = \
+  libTrackingDiagnostics.la
+
+libTrackingDiagnostics_la_SOURCES = \
+  Tpc_ModuleTrackDisplay.cc \
+  Tpc_AssembledTrackDisplay.cc \
+  Tpc_PolyClusterDisplay.cc \
+  Tpc_PolyClusterResiduals.cc \
+  TpcV0CandidateTree.cc \
+  TpcTrackHelixFitter.cc \
+  TpcTrackKalmanFitter.cc \
+  BeamCrossingAnalysis.cc \
+  helixResiduals.cc \
+  KshortReconstruction.cc \
+  TrackContainerCombiner.cc \
+  TrackResiduals.cc \
+  TrackSeedTrackMapConverter.cc \
+  TrkrNtuplizer.cc
+
+libTrackingDiagnostics_la_LIBADD = \
+  -lffaobjects \
+  -lphool \
+  -lfun4all \
+  -lg4eval \
+  -lg4eval_io \
+  -lphg4hit \
+  -lphfield \
+  -lmbd_io \
+  -lg4detectors_io \
+  -lmvtx \
+  -lmvtx_io \
+  -lintt \
+  -lintt_io \
+  -lmicromegas_io \
+  -lSubsysReco \
+  -ltpc_io \
+  -ltrack_io \
+  -ltrackeralign \
+  -ltrackbase_historic_io \
+  -ltpctrackreco
+
+BUILT_SOURCES = testexternals.cc
+
+noinst_PROGRAMS = \
+  testexternals
+
+testexternals_SOURCES = testexternals.cc
+testexternals_LDADD   = libTrackingDiagnostics.la
+
+testexternals.cc:
+	echo "//*** this is a generated file. Do not commit, do not edit" > $@
+	echo "int main()" >> $@
+	echo "{" >> $@
+	echo "  return 0;" >> $@
+	echo "}" >> $@
+
+clean-local:
+	rm -f $(BUILT_SOURCES)
