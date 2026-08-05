@@ -1200,17 +1200,17 @@ void MakeK0sPairHistograms(
       "primary_dz_0p5_track",
       "primary momenta, pT>0.30, nTPC>=30, quality<15, |DCAxy|<1, "
       "|primary PCA z|<20, |Delta primary PCA z|<0.5",
-      0.80, 20, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0
+      0.80, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p5_dcaz2",
       "same as primary_dz_0p5_track plus |DCAz to fixed z=0|<2; diagnostic only",
-      0.80, 20, 15.0, 1.0, 0.1, 20.0, 0.5, -1.0
+      0.80, 30, 15.0, 1.0, 0.1, 20.0, 0.5, -1.0
     },
     {
       "primary_dz_0p5_pid",
       "same as primary_dz_0p5_track plus pion dE/dx<300 and kaon dE/dx>300",
-      0.20, 20, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0,
+      0.20, 30, 15.0, 1.0, -1.0, 20.0, 0.5, -1.0,
       -1.0, 300.0, 300.0, -1.0
     }
   };

@@ -340,6 +340,9 @@ void StudyK0sDoublePeakQA(const char* inputDir = ".",
   Float_t alpha = 0.f, pairDCA = 0.f;
   Float_t charge1 = 0.f, charge2 = 0.f, quality1 = 0.f, quality2 = 0.f;
   Short_t npoints1 = 0, npoints2 = 0;
+  Float_t dedx_1 = 0.f;
+  Float_t dedx_2 = 0.f;
+  
 
   chain.SetBranchAddress("mass_Kshort", &mass_Kshort);
   chain.SetBranchAddress("v0_pt", &v0_pt);
@@ -365,6 +368,8 @@ void StudyK0sDoublePeakQA(const char* inputDir = ".",
   chain.SetBranchAddress("quality2", &quality2);
   chain.SetBranchAddress("npoints1", &npoints1);
   chain.SetBranchAddress("npoints2", &npoints2);
+  chain.SetBranchAddress("dedx_1", &dedx_1);
+  chain.SetBranchAddress("dedx_2", &dedx_2);
 
   gSystem->mkdir(outputDir, kTRUE);
   const TString outputPath = TString::Format("%s/%s", outputDir, outputName);
@@ -434,10 +439,11 @@ void StudyK0sDoublePeakQA(const char* inputDir = ".",
       absDeltaPcaZ < 0.5 &&
       pt1 > 0.2 && pt2 > 0.2 &&
       decayRadius > 2.0 &&
-      absAlpha < 0.99 &&
-      absPairDCA < 1.5 &&
+      absAlpha < 0.9999 &&
+      absPairDCA < 1.0 &&
       dira > 0.88 &&
-      npoints1 > 20 && npoints2 > 20 &&
+      dedx_1 < 400 && dedx_2 < 400 &&
+      npoints1 > 30 && npoints2 > 30 &&
       quality1 < 1.5 && quality2 < 1.5;
 
 
@@ -450,6 +456,7 @@ void StudyK0sDoublePeakQA(const char* inputDir = ".",
       absPairDCA < 0.5 &&
       dira > 0.95 &&
       npoints1 > 30 && npoints2 > 30 &&
+      dedx_1 < 400 && dedx_2 < 400 &&
       quality1 < 0.5 && quality2 < 0.5;
 
 

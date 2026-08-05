@@ -533,7 +533,7 @@ void MakeResidualHistograms(
     // Original selection:
     // ntpc_clusters>30 && pt>0.5 && abs(zDCA)<2
     const bool passSidePca =
-      passBaseline && ntpc_clusters > 20 && pt > 0.2 && std::abs(zDCA) < 2e6;
+      passBaseline && ntpc_clusters > 20 && pt > 0.2 && std::abs(zDCA) < 2e6 && dedx<400;
 
     // Original selection:
     // ntpc_clusters>30 && pca_z in (-15,15) && pt>0.3
@@ -541,14 +541,14 @@ void MakeResidualHistograms(
       passBaseline &&
       ntpc_clusters > 30 &&
       std::abs(pca_z) < 15. &&
-      pt > 0.3;
+      pt > 0.3 && dedx<400;
 
     // Original q/pT plot had no explicit pT threshold.
     const bool passRDcaQOverPt =
       passBaseline &&
       ntpc_clusters > 30 &&
       std::abs(pca_z) < 15. &&
-      pt > 0.;
+      pt > 0. && dedx<400;
 
     // New phase-space QA for studying charge symmetry and distortion stability.
     // These plots use the same fixed PCA-z region on both sides.
@@ -558,7 +558,7 @@ void MakeResidualHistograms(
       pt > 0.2 &&
       std::isfinite(eta) &&
       std::isfinite(rDCA_zero) &&
-      std::abs(rDCA_zero) < 99.;
+      std::abs(rDCA_zero) < 99. && dedx<400;
 
     // Original dE/dx selection.
     const bool passDedx =
@@ -571,7 +571,7 @@ void MakeResidualHistograms(
     // The rDCA_zero distributions themselves remain uncut in rDCA_zero.
     const bool passResidualTrack =
       passBaseline &&
-      std::isfinite(rDCA_zero) && std::abs(rDCA_zero) < 10.;
+      std::isfinite(rDCA_zero) && std::abs(rDCA_zero) < 10. && dedx<400;
 
     // New loose residual-map selection only. It intentionally bypasses
     // the baseline ntpc_clusters >= 30 selection used by all existing plots.
@@ -580,14 +580,14 @@ void MakeResidualHistograms(
       pt > 0.2 &&
       std::abs(pca_z) < 10. &&
       std::isfinite(rDCA_zero) &&
-      std::abs(rDCA_zero) < 2.;
+      std::abs(rDCA_zero) < 2. && dedx<400;
 
     // Existing cluster residual histograms retain their pT > 2 GeV/c cut.
-    const bool passClusterResidual = passResidualTrack && pt > 0.2;
+    const bool passClusterResidual = passResidualTrack && pt > 0.2 && dedx<400;
 
     // New residual maps are made with two thresholds.
-    const bool passClusterMapPt1 = passResidualTrack && pt > 0.2;
-    const bool passClusterMapPt2 = passResidualTrack && pt > 2.;
+    const bool passClusterMapPt1 = passResidualTrack && pt > 0.2 && dedx<400;
+    const bool passClusterMapPt2 = passResidualTrack && pt > 2 && dedx<400.;
 
     for (const auto& category : activeCategories)
     {
