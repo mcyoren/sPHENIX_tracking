@@ -33,6 +33,7 @@ class TpcV0CandidateTree : public SubsysReco
   ~TpcV0CandidateTree() override = default;
 
   int Init(PHCompositeNode *topNode) override;
+  int InitRun(PHCompositeNode *topNode) override;
   int process_event(PHCompositeNode *topNode) override;
   int End(PHCompositeNode *topNode) override;
 

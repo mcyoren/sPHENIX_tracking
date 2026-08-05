@@ -29,6 +29,10 @@
 #include <phool/PHCompositeNode.h>
 #include <phool/getClass.h>
 
+
+#include <ffamodules/CDBInterface.h>
+#include <phfield/PHField3DCartesian.h>
+
 #include <TAxis.h>
 #include <TFile.h>
 #include <TH3.h>
@@ -718,6 +722,59 @@ int TpcV0CandidateTree::Init(PHCompositeNode *topNode)
 
   return Fun4AllReturnCodes::EVENT_OK;
 }
+
+int TpcV0CandidateTree::InitRun(PHCompositeNode *topNode)
+{
+  if (!m_fit_kalman_tracks || !m_use_kalman_field_map)
+  {
+    m_kalman_config.magnetic_field = nullptr;
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+  if (m_kalman_config.magnetic_field == nullptr && topNode != nullptr)
+  {
+    
+    CDBInterface* m_cdb = CDBInterface::instance();
+
+    //  Here we use the CDBInterface to set up the magnetic field map:
+    std::string url = m_cdb->getUrl("FIELDMAP_TRACKING");
+    std::cout << "PHGarfield::InitRun(PHCompositeNode *topNode) Using magnetic field map: " << url << std::endl;
+    m_kalman_config.magnetic_field = new PHField3DCartesian(url, 1.0);
+
+    if (m_kalman_config.magnetic_field == nullptr)
+    {
+      std::cerr << Name()
+                << ": requested real magnetic-field propagation, but PHField node '"
+                << url
+                << "' was not found. Ensure the DST contains the field node or "
+                   "create the standard sPHENIX field map before registering this module."
+                << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
+    }else
+    {
+      std::cout << Name()
+                << ": using real magnetic-field map for Kalman propagation; node="
+                << url << std::endl;
+    }
+  }
+
+  // A non-null PHField pointer selects mapped RKN propagation. Keep the
+  // explicit flag consistent for diagnostics and downstream propagation.
+  m_kalman_config.analytic_uniform_propagation = false;
+
+  std::cout << Name()
+            << ": real magnetic-field map enabled; node="
+            << PHFieldUtility::GetDSTFieldMapNodeName()
+            << " RKN max_step_cm=" << m_kalman_config.rkn_max_step_cm
+            << " tolerance=" << m_kalman_config.rkn_step_tolerance
+            << " fast_jacobian=" << (m_kalman_config.rkn_fast_field_jacobian ? 1 : 0)
+            << " fast_pca=" << (m_kalman_config.rkn_fast_field_pca ? 1 : 0)
+            << " fit_iterations=" << m_kalman_config.fit_iterations
+            << std::endl;
+
+  return Fun4AllReturnCodes::EVENT_OK;
+}
+
 
 int TpcV0CandidateTree::process_event(PHCompositeNode *topNode)
 {
