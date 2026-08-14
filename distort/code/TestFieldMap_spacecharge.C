@@ -369,12 +369,21 @@ void TestFieldMap_spacecharge(const double keff_side0 = 1.0, const double keff_s
 
   const std::string electricFieldMap = "";
   //"include/sphenix_rossegger_garfield_field_2p0.root";
-  const std::string field3DSide0 = "include/sphenix_3d_ibf_field_side0_South_v3.root";
-  const std::string field3DSide1 = "include/sphenix_3d_ibf_field_side1_North_v3.root";
+  //const std::string field3DSide0 = "include/sphenix_3d_ibf_field_side0_South_v3.root";
+  //const std::string field3DSide1 = "include/sphenix_3d_ibf_field_side1_North_v3.root";
+  const std::string field3DSide0 = "include/ibf_side0_3d.root";
+  const std::string field3DSide1 = "include/ibf_side1_3d.root";
 
   auto *phg = new PHGarfield("PHGarfield", electricFieldMap, keff_side0, keff_side1);
 
   phg->SetElectricFieldMap3D(field3DSide0, field3DSide1);
+
+  const std::string framefield3DSide0 = "include/frames_side0_3d_v1.root";
+  const std::string framefield3DSide1 = "include/frames_side1_3d_v1.root";
+
+  phg->SetFrameElectricFieldMap3D(framefield3DSide0, framefield3DSide1);
+
+  phg->SetFrameChargeScale(-3000);
 
   TVector3 northPositionMm(-0.001, -0.001, 1123.109);
   TVector3 southPositionMm(-3.354, -0.673, -1137.382);
