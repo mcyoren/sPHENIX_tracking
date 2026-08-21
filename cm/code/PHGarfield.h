@@ -1,0 +1,210 @@
+#ifndef PHGARFIELD__H
+#define PHGARFIELD__H
+
+#include <fun4all/SubsysReco.h>
+
+#include <array>
+#include <cstddef>
+#include <numbers>
+#include <string>
+
+#include <TRotation.h>
+#include <TVector3.h>
+
+class CDBTTree;
+class PHField3DCartesian;
+class TPolyLine3D;
+class TH2;
+class TH3;
+
+namespace Garfield
+{
+  class ComponentUser;
+  class MediumMagboltz;
+}  // namespace Garfield
+
+class PHGarfield : public SubsysReco
+{
+ public:
+  // Backward-compatible constructor used by existing sPHENIX/Devon TPC code.
+  PHGarfield(const std::string &name = "PHGarfield",
+             const std::string &electricFieldMap = "",
+             double spaceChargeScale_side0 = 1.0,
+             double spaceChargeScale_side1 = 1.0);
+
+  // Extended constructor for direct side-separated 3D field-map configuration.
+  PHGarfield(const std::string &name,
+             const std::string &electricFieldMap,
+             double spaceChargeScale_side0,
+             double spaceChargeScale_side1,
+             const std::string &electricFieldMap3D_side0,
+             const std::string &electricFieldMap3D_side1);
+  ~PHGarfield() override;
+
+  int InitRun(PHCompositeNode *) override;
+  int process_event(PHCompositeNode *topNode) override;
+
+  enum class ReverseDriftStatus
+  {
+    Running,
+    CentralMembrane,
+    RadialBoundary,
+    ZBoundary,
+    Stuck,
+    InvalidVelocity,
+    MaxSteps
+  };
+
+  ReverseDriftStatus StopHere(const double x, const double y, const double z, const double zPrevious);
+
+  void PrintMaps() const;
+  void PrintGarfield(double x, double y, double z) const;
+  void PrintGasSummary() const;
+
+  // Rigid-body placement of the TPC and magnetic-field map.
+  // Units are cm and radians.  Garfield drift coordinates remain in the
+  // local TPC frame; these transforms are used only to sample B(x).
+  void MoveMagnet(double x_cm, double y_cm, double z_cm);
+  void RotateMagnet(double theta_x, double theta_y, double theta_z);
+  void MoveTpc(double x_cm, double y_cm, double z_cm);
+  void RotateTpc(double theta_x, double theta_y, double theta_z);
+  void SetCMVoltageDefault(double voltage) { m_CMVoltageDefault = voltage; }
+
+  //  These are left in public namespace for easy plotting macros...
+  //  The user is encouraged to add more routine to fit their analysis goals...
+  // Existing macros should call this one.  Input and returned polyline are in
+  // local TPC/Garfield coordinates.
+  TPolyLine3D *ReverseDrift(double x_cm, double y_cm, double z_cm, double step_ns = 50.0, ReverseDriftStatus *status = nullptr);
+
+  // Debug/visualization helper.  Input and returned polyline are in global
+  // detector coordinates.  Internally the drift is still computed in local TPC
+  // coordinates to keep the Garfield gas tables valid.
+  TPolyLine3D *ReverseDriftGlobalCoords(double x_cm, double y_cm, double z_cm, double step_ns = 50.0, ReverseDriftStatus *status = nullptr);
+
+  double GetRadius(size_t index) const { return radii.at(index); }
+
+  // Axisymmetric ROOT map must contain QA/hErDefault and QA/hEzDefault.
+  // The histograms are expected in cm on the axes and V/m in the bins.
+  void SetElectricFieldMap(const std::string &filename) { m_electricFieldMap = filename; }
+
+  // Side-separated 3D ROOT maps must contain Field3D/hEx, Field3D/hEy,
+  // and Field3D/hEz. Axes are (r [cm], phi [rad], |z| [cm]); bin contents
+  // are V/m. hEz is expressed along the +|z| solver coordinate.
+  void SetElectricFieldMap3D(const std::string &side0_filename, const std::string &side1_filename)
+  {
+    m_electricFieldMap3D[0] = side0_filename;
+    m_electricFieldMap3D[1] = side1_filename;
+  }
+  void SetElectricFieldMap3DSide0(const std::string &filename) { m_electricFieldMap3D[0] = filename; }
+  void SetElectricFieldMap3DSide1(const std::string &filename) { m_electricFieldMap3D[1] = filename; }
+
+  // Optional frame-charge correction maps are added on top of the existing
+  // space-charge correction. The 2D format is QA/hErDefault + QA/hEzDefault;
+  // the side-separated 3D format may be either Field3D/hEx + hEy + hEz
+  // or the Rossegger cylindrical format hEr + hEphi + hEz at file root.
+  void SetFrameElectricFieldMap(const std::string &filename) { m_frameElectricFieldMap = filename; }
+  void SetFrameElectricFieldMap3D(const std::string &side0_filename, const std::string &side1_filename)
+  {
+    m_frameElectricFieldMap3D[0] = side0_filename;
+    m_frameElectricFieldMap3D[1] = side1_filename;
+  }
+  void SetFrameElectricFieldMap3DSide0(const std::string &filename) { m_frameElectricFieldMap3D[0] = filename; }
+  void SetFrameElectricFieldMap3DSide1(const std::string &filename) { m_frameElectricFieldMap3D[1] = filename; }
+  void SetFrameChargeScale(double value)
+  {
+    m_frameChargeScale_side0 = value;
+    m_frameChargeScale_side1 = value;
+  }
+  void SetFrameChargeScaleSide0(double value) { m_frameChargeScale_side0 = value; }
+  void SetFrameChargeScaleSide1(double value) { m_frameChargeScale_side1 = value; }
+
+  void SetSpaceChargeScale(double value)
+  {
+    m_spaceChargeScale_side0 = value;
+    m_spaceChargeScale_side1 = value;
+  }
+
+  void SetSpaceChargeScaleSide0(double value) { m_spaceChargeScale_side0 = value; }
+  void SetSpaceChargeScaleSide1(double value) { m_spaceChargeScale_side1 = value; }
+
+  double GetSpaceChargeScaleSide0() const { return m_spaceChargeScale_side0; }
+  double GetSpaceChargeScaleSide1() const { return m_spaceChargeScale_side1; }
+
+  void SetZeroField(bool zerofield) { m_zerofield = zerofield; }
+
+ private:
+  void GetMagneticFieldTesla(double x_cm, double y_cm, double z_cm, double &bx_t, double &by_t, double &bz_t) const;      // Feeds magnetic field to Garfield
+  void GetElectricFieldVcm(double x_cm, double y_cm, double z_cm, double &ex_vcm, double &ey_vcm, double &ez_vcm) const;  // Feeds electric field to Garfield
+  void InitializeGas(const std::string &name);                                                                            // Accepts a file or a directory
+  bool LoadElectricFieldCorrections(const std::string &filename);
+  bool LoadElectricFieldCorrections3D(const std::string &filename, std::size_t side);
+  bool HasElectricFieldCorrections3D(std::size_t side) const;
+  void ClearElectricFieldCorrections3D(std::size_t side);
+
+  bool LoadFrameElectricFieldCorrections(const std::string &filename);
+  bool LoadFrameElectricFieldCorrections3D(const std::string &filename, std::size_t side);
+  bool HasFrameElectricFieldCorrections3D(std::size_t side) const;
+  void ClearFrameElectricFieldCorrections3D(std::size_t side);
+  void AddFrameElectricFieldCorrections(double r_cm, double phi_rad, double z_cm,
+                                        double &ex_vcm, double &ey_vcm, double &ez_vcm) const;
+
+  double InterpolateCorrectionVcm(const TH2 *hist, double r_cm, double abs_z_cm) const;
+  double InterpolateCorrectionVcm(const TH3 *hist, double r_cm, double phi_rad, double abs_z_cm) const;
+  TVector3 TpcPointToGlobalPoint(double x_cm, double y_cm, double z_cm) const;
+  TVector3 GlobalPointToTpcPoint(double x_cm, double y_cm, double z_cm) const;
+  TVector3 TpcPointToMagnetFieldMapPoint(double x_cm, double y_cm, double z_cm) const;
+  TVector3 MagnetFieldMapVectorToTpcVector(double bx, double by, double bz) const;
+  void FillRadii();
+  static double bounder(double phi, double phi_min);
+
+  CDBTTree *m_cdbTPCMAPttree{nullptr};            // Locations of the pads from CDB...
+  PHField3DCartesian *m_field{nullptr};           // The standard sPHENIX field holding container.
+  Garfield::ComponentUser *m_component{nullptr};  // This handles the interface of the electric and magnetic fields as handed to Garfield
+  Garfield::MediumMagboltz *m_gas{nullptr};       // This is the pre-tabulated gas properties required by Garfield...
+  std::string m_defaultGasfile;
+  bool m_GasFilesLoaded{false};
+
+  // Transform convention:
+  //   global = rotation * local + translation
+  // tpcrot/tpcpos place the local TPC frame in the global detector frame.
+  // magrot/magpos place the magnetic-field map frame in the same global frame.
+  TVector3 m_magpos{0.0, 0.0, 0.0};
+  TRotation m_magrot;
+  TVector3 m_tpcpos{0.0, 0.0, 0.0};
+  TRotation m_tpcrot;
+
+  // Space-charge correction maps. Histograms are cloned from the input ROOT
+  // files and owned here. If a valid 3D map is loaded for a side, it takes
+  // precedence over the optional axisymmetric map on that side.
+  std::string m_electricFieldMap;
+  std::array<std::string, 2> m_electricFieldMap3D{};
+  double m_spaceChargeScale_side0{1.0};  // south, z < 0
+  double m_spaceChargeScale_side1{1.0};  // north, z > 0
+  double m_CMVoltageDefault{380.0};      // V/cm, nominal TPC field
+  bool m_zerofield{false};
+  TH2 *m_erCorrection{nullptr};          // radial correction, input bins in V/m
+  TH2 *m_ezCorrection{nullptr};          // local longitudinal correction, input bins in V/m
+  // Component order is Ex, Ey, Ez. Ez is along +|z| in the map.
+  std::array<std::array<TH3 *, 3>, 2> m_field3DCorrection{};
+
+  // Optional frame-charge field correction, added independently on top of the
+  // ordinary space-charge field. A side-specific 3D frame map takes precedence
+  // over the optional axisymmetric frame map on that side.
+  std::string m_frameElectricFieldMap;
+  std::array<std::string, 2> m_frameElectricFieldMap3D{};
+  double m_frameChargeScale_side0{1.0};
+  double m_frameChargeScale_side1{1.0};
+  TH2 *m_frameErCorrection{nullptr};
+  TH2 *m_frameEzCorrection{nullptr};
+  std::array<std::array<TH3 *, 3>, 2> m_frameField3DCorrection{};
+  // false: Ex,Ey,Ez Cartesian format; true: Er,Ephi,Ez cylindrical Rossegger format.
+  std::array<bool, 2> m_frameField3DIsCylindrical{{false, false}};
+
+  //  These are utilities for a spot check of the overall routine:
+  // std::string calibdir;
+  // std::string m_DiodeContainerName;
+  double PHI_MIN{-std::numbers::pi};
+  std::array<double, 48> radii{};  // Radius on each layer just for test purposes...need to be cm!
+};
+
+#endif
