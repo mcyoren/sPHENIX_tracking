@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <numbers>
 #include <string>
+#include <vector>
 
 #include <TRotation.h>
 #include <TVector3.h>
@@ -132,6 +133,34 @@ class PHGarfield : public SubsysReco
 
   void SetZeroField(bool zerofield) { m_zerofield = zerofield; }
 
+  // Static inner-field-cage (IFC) boundary-voltage distortion.
+  // side0 = south (z < 0), side1 = north (z > 0).
+  // Offsets are endpoint perturbations relative to nominal, in volts.
+  void SetUseIFCVoltageDistortion(bool value) { m_useIFCVoltageDistortion = value; }
+  void SetIFCVoltageOffset(double side0_south_v, double side1_north_v)
+  {
+    m_ifcVoltageOffset_side0 = side0_south_v;
+    m_ifcVoltageOffset_side1 = side1_north_v;
+  }
+  void SetIFCVoltageOffsetSide0(double value_v) { m_ifcVoltageOffset_side0 = value_v; }
+  void SetIFCVoltageOffsetSide1(double value_v) { m_ifcVoltageOffset_side1 = value_v; }
+  double GetIFCVoltageOffsetSide0() const { return m_ifcVoltageOffset_side0; }
+  double GetIFCVoltageOffsetSide1() const { return m_ifcVoltageOffset_side1; }
+
+  // Geometry of the axisymmetric IFC boundary solver, in cm.
+  void SetIFCGeometry(double inner_radius_cm, double outer_radius_cm, double half_length_cm)
+  {
+    m_ifcInnerRadius_cm = inner_radius_cm;
+    m_ifcOuterRadius_cm = outer_radius_cm;
+    m_ifcHalfLength_cm = half_length_cm;
+  }
+  void SetIFCVoltageModes(unsigned int modes) { m_ifcVoltageModes = modes; }
+  void SetIFCGridSize(unsigned int nr, unsigned int nz)
+  {
+    m_ifcGridNR = nr;
+    m_ifcGridNZ = nz;
+  }
+
  private:
   void GetMagneticFieldTesla(double x_cm, double y_cm, double z_cm, double &bx_t, double &by_t, double &bz_t) const;      // Feeds magnetic field to Garfield
   void GetElectricFieldVcm(double x_cm, double y_cm, double z_cm, double &ex_vcm, double &ey_vcm, double &ez_vcm) const;  // Feeds electric field to Garfield
@@ -147,6 +176,10 @@ class PHGarfield : public SubsysReco
   void ClearFrameElectricFieldCorrections3D(std::size_t side);
   void AddFrameElectricFieldCorrections(double r_cm, double phi_rad, double z_cm,
                                         double &ex_vcm, double &ey_vcm, double &ez_vcm) const;
+  void AddIFCVoltageDistortion(double x_cm, double y_cm, double z_cm,
+                               double &ex_vcm, double &ey_vcm, double &ez_vcm) const;
+  bool BuildIFCVoltageFieldGrid();
+  double InterpolateIFCGrid(const std::vector<double> &grid, double r_cm, double abs_z_cm) const;
 
   double InterpolateCorrectionVcm(const TH2 *hist, double r_cm, double abs_z_cm) const;
   double InterpolateCorrectionVcm(const TH3 *hist, double r_cm, double phi_rad, double abs_z_cm) const;
@@ -199,6 +232,22 @@ class PHGarfield : public SubsysReco
   std::array<std::array<TH3 *, 3>, 2> m_frameField3DCorrection{};
   // false: Ex,Ey,Ez Cartesian format; true: Er,Ephi,Ez cylindrical Rossegger format.
   std::array<bool, 2> m_frameField3DIsCylindrical{{false, false}};
+
+  // Static IFC boundary-condition distortion (Laplace solution, not space charge).
+  bool m_useIFCVoltageDistortion{false};
+  double m_ifcVoltageOffset_side0{0.0};  // south, z < 0, V relative to nominal
+  double m_ifcVoltageOffset_side1{0.0};  // north, z > 0, V relative to nominal
+  double m_ifcInnerRadius_cm{20.0};
+  double m_ifcOuterRadius_cm{78.0};
+  double m_ifcHalfLength_cm{102.325};
+  unsigned int m_ifcVoltageModes{60};
+  unsigned int m_ifcGridNR{241};
+  unsigned int m_ifcGridNZ{321};
+  double m_ifcGridDr_cm{0.0};
+  double m_ifcGridDz_cm{0.0};
+  bool m_ifcGridReady{false};
+  std::vector<double> m_ifcUnitErGrid;  // V/cm for +1 V endpoint perturbation
+  std::vector<double> m_ifcUnitEsGrid;  // V/cm along +|z| for +1 V endpoint perturbation
 
   //  These are utilities for a spot check of the overall routine:
   // std::string calibdir;
