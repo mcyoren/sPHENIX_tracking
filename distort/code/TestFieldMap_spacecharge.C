@@ -71,6 +71,34 @@ namespace
   TCanvas *gCanvas3D = nullptr;
   TCanvas *gCanvasRZ = nullptr;
 
+  double EstimateAverageDriftVelocity(
+      const TPolyLine3D *line,
+      const double step_ns)
+  {
+    if (!line || line->GetN() < 2 || !line->GetP())
+    {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    const int nPoints = line->GetN();
+    const float *points = line->GetP();
+
+    const double zStart = points[2];
+    const double zEnd = points[3 * (nPoints - 1) + 2];
+
+    // There are N-1 time intervals between N stored points.
+    const double driftTime_ns = (nPoints - 1) * step_ns;
+    const double driftDistance_cm = std::abs(zEnd - zStart);
+
+    if (driftTime_ns <= 0.0)
+    {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    // cm/ns
+    return driftDistance_cm / driftTime_ns;
+  }
+
   int GetPadPlanePointIndex(const TPolyLine3D *line)
   {
     if (!line || line->GetN() < 1 || !line->GetP())
@@ -327,19 +355,19 @@ namespace
 void TestFieldMap_spacecharge(const double keff_side0 = 1.0, const double keff_side1 = 1.0)
 {
   recoConsts *rc = recoConsts::instance();
-  rc->set_StringFlag("CDB_GLOBALTAG", "FieldMapTest");
+  rc->set_StringFlag("CDB_GLOBALTAG", "newcdbtag");
   rc->set_uint64Flag("TIMESTAMP", 1);
 
   auto *cdb = CDBInterface::instance();
   std::cout << "Field map URL:\n"
-            << cdb->getUrl("FIELDMAP_TRACKING") << std::endl;
+            << cdb->getUrl("FIELDMAP_TRACKING") << std::endl;du -hd1 
 
   Fun4AllServer *se = Fun4AllServer::instance();
 
   Enable::QA = false;
   Enable::CDB = true;
 
-  // ===========================================================================
+  // ========================================================= ==================
   // Input
   // ===========================================================================
 
@@ -371,19 +399,27 @@ void TestFieldMap_spacecharge(const double keff_side0 = 1.0, const double keff_s
   //"include/sphenix_rossegger_garfield_field_2p0.root";
   //const std::string field3DSide0 = "include/sphenix_3d_ibf_field_side0_South_v3.root";
   //const std::string field3DSide1 = "include/sphenix_3d_ibf_field_side1_North_v3.root";
-  const std::string field3DSide0 = "include/ibf_side0_3d.root";
-  const std::string field3DSide1 = "include/ibf_side1_3d.root";
+  //const std::string field3DSide0 = "include/ibf_side0_3d_r2.root";
+  //const std::string field3DSide1 = "include/ibf_side1_3d_r2.root";
+  //const std::string field3DSide0 = "include/ibf_side0_3d_r1p8_phi_v1.root";
+  //const std::string field3DSide1 = "include/ibf_side1_3d_r1p8_phi_v1.root";
+  const std::string field3DSide0 = "include/notebook_ibf_field_side0_South.root";
+  const std::string field3DSide1 = "include/notebook_ibf_field_side1_North.root";
+
+  
 
   auto *phg = new PHGarfield("PHGarfield", electricFieldMap, keff_side0, keff_side1);
 
   phg->SetElectricFieldMap3D(field3DSide0, field3DSide1);
+  
+  const std::string framefield3DSide0 = "include/frames_side0_3d_v6_1_geom.root";
+  const std::string framefield3DSide1 = "include/frames_side1_3d_v6_1_geom.root";
+  const std::string framefield2D = "include/frames_side0_2d_rossegger_v2.root";
 
-  const std::string framefield3DSide0 = "include/frames_side0_3d_v1.root";
-  const std::string framefield3DSide1 = "include/frames_side1_3d_v1.root";
-
+  //phg->SetFrameElectricFieldMap(framefield2D);
   phg->SetFrameElectricFieldMap3D(framefield3DSide0, framefield3DSide1);
 
-  phg->SetFrameChargeScale(-3000);
+  phg->SetFrameChargeScale(-120);
 
   TVector3 northPositionMm(-0.001, -0.001, 1123.109);
   TVector3 southPositionMm(-3.354, -0.673, -1137.382);
@@ -394,7 +430,17 @@ void TestFieldMap_spacecharge(const double keff_side0 = 1.0, const double keff_s
   // phg->MoveTpc(tpcCenterCm.X(),tpcCenterCm.Y(),tpcCenterCm.Z());
   // phg->RotateTpc(0.0, 0.001485, 0.0);
   // phg->RotateTpc(0.000298, 0.0, 0.0);
-  phg->SetCMVoltageDefault(380.0);
+  phg->SetCMVoltageDefault(375.0);
+
+  phg->SetUseIFCVoltageDistortion(true);
+  phg->SetUseOFCVoltageDistortion(true);
+
+  phg->SetFieldCageVoltageOffsets(
+     211.0,   // IFC South
+       0.0,   // IFC North
+       0.0,   // OFC South
+     211.0);  // OFC North
+
 
   se->registerSubsystem(phg);
   se->run(4);
@@ -525,6 +571,14 @@ void TestFieldMap_spacecharge(const double keff_side0 = 1.0, const double keff_s
   // ===========================================================================
   // Generate all drift trajectories
   // ===========================================================================
+  double sumDriftVelocityNorth = 0.0;
+  double sumDriftVelocitySouth = 0.0;
+  int nDriftVelocityNorth = 0;
+  int nDriftVelocitySouth = 0;
+
+  // MUST match the step used inside PHGarfield::ReverseDrift().
+  const double reverseDriftStepNs = 56.8;  // <-- replace with actual PHGarfield step_ns
+
 
   for (int layer = 0; layer < kNumLayers; ++layer)
   {
@@ -534,7 +588,15 @@ void TestFieldMap_spacecharge(const double keff_side0 = 1.0, const double keff_s
     graphPadRadiusZ50->SetPoint(layer, padRadius, 0.0);
 
     // North trajectory.
-    gNorthPoly3D[layer] = phg->ReverseDrift(0.0, padRadius, kZPadNorth);
+    gNorthPoly3D[layer] = phg->ReverseDrift(0.0, padRadius, kZPadNorth, reverseDriftStepNs);
+
+    const double vNorth = EstimateAverageDriftVelocity(gNorthPoly3D[layer], reverseDriftStepNs);
+
+    if (std::isfinite(vNorth))
+    {
+      sumDriftVelocityNorth += vNorth;
+      ++nDriftVelocityNorth;
+    }
 
     DrawTrajectory(gNorthPoly3D[layer], gNorthPolyRZ[layer], gCanvas3D, gCanvasRZ, kNorthColor);
 
@@ -542,8 +604,16 @@ void TestFieldMap_spacecharge(const double keff_side0 = 1.0, const double keff_s
 
     FillRdPhiAtZ(gNorthPoly3D[layer], kZTargetNorth50, padRadius, graphRdPhiZ50North, nZ50North, displacementLinesZ50, veryTransparentGray);
 
+    gSouthPoly3D[layer] = phg->ReverseDrift(0.0, padRadius, kZPadSouth, reverseDriftStepNs);
+
     // South trajectory.
-    gSouthPoly3D[layer] = phg->ReverseDrift(0.0, padRadius, kZPadSouth);
+    const double vSouth = EstimateAverageDriftVelocity(gSouthPoly3D[layer], reverseDriftStepNs);
+
+    if (std::isfinite(vSouth))
+    {
+      sumDriftVelocitySouth += vSouth;
+      ++nDriftVelocitySouth;
+    }
 
     DrawTrajectory(gSouthPoly3D[layer], gSouthPolyRZ[layer], gCanvas3D, gCanvasRZ, kSouthColor);
 
@@ -552,6 +622,26 @@ void TestFieldMap_spacecharge(const double keff_side0 = 1.0, const double keff_s
     FillRdPhiAtZ(gSouthPoly3D[layer], kZTargetSouth50, padRadius, graphRdPhiZ50South, nZ50South, displacementLinesZ50, veryTransparentGray);
   }
 
+  const double avgDriftVelocityNorth =
+      nDriftVelocityNorth > 0
+          ? sumDriftVelocityNorth / nDriftVelocityNorth
+          : std::numeric_limits<double>::quiet_NaN();
+
+  const double avgDriftVelocitySouth =
+      nDriftVelocitySouth > 0
+          ? sumDriftVelocitySouth / nDriftVelocitySouth
+          : std::numeric_limits<double>::quiet_NaN();
+
+  std::cout << "\n========================================"
+            << "\nEstimated average drift velocity:"
+            << "\n  North = " << avgDriftVelocityNorth
+            << " cm/ns  = " << avgDriftVelocityNorth * 1000.0
+            << " cm/us"
+            << "\n  South = " << avgDriftVelocitySouth
+            << " cm/ns  = " << avgDriftVelocitySouth * 1000.0
+            << " cm/us"
+            << "\n========================================"
+            << std::endl;
   // ===========================================================================
   // Canvas 3: rDeltaPhi versus r near z = 0
   // ===========================================================================

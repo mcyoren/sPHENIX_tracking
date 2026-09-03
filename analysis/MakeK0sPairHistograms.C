@@ -554,7 +554,8 @@ void MakeK0sPairHistograms(
   const double beamZ = 0.0,
   const char* likeSignTreeName = "likeSignPairTree",
   const bool includeLikeSignTree = true,
-  const bool includePrimaryConstrainedPrompt = true)
+  const bool includePrimaryConstrainedPrompt = true,
+  const bool ignoreCrossingZero = true)
 {
   TH1::AddDirectory(kTRUE);
 
@@ -572,6 +573,7 @@ void MakeK0sPairHistograms(
             << ", includeLikeSignTree=" << includeLikeSignTree
             << ", includePrimaryConstrainedPrompt="
             << includePrimaryConstrainedPrompt
+            << ", ignoreCrossingZero=" << ignoreCrossingZero
             << std::endl;
 
   const TString chainPattern =
@@ -1012,22 +1014,22 @@ void MakeK0sPairHistograms(
     {
       "cut04_pairDCA_15mm",
       "|z|<12, pt>0.20, dz<0.50, pairDCA<1.5",
-      12.0, 0.50, 0.20, 2.0, 0.99, 1.50, 0.88, 15.0, 30
+      15.0, 0.50, 0.20, 2.0, 0.99, 1.50, 0.88, 15.0, 30
     },
     {
       "cut05_pairDCA_10mm",
       "|z|<10, pt>0.20, dz<0.40, pairDCA<1.0",
-      10.0, 0.40, 0.20, 2.0, 0.99, 1.00, 0.90, 13.0, 30
+      15.0, 0.40, 0.20, 2.0, 0.99, 1.00, 0.90, 15.0, 30
     },
     {
       "cut06_pairDCA_7mm",
       "|z|<10, pt>0.20, dz<0.25, pairDCA<0.7",
-      10.0, 0.25, 0.20, 2.0, 0.99, 0.70, 0.93, 12.0, 32
+      15.0, 0.25, 0.20, 2.0, 0.99, 0.70, 0.93, 15.0, 30
     },
     {
       "cut07_pairDCA_5mm",
       "|z|<10, pt>0.200, dz<0.20, pairDCA<0.5",
-      10.0, 0.20, 0.20, 2.0, 0.99, 0.50, 0.95, 10.0, 32
+      15.0, 0.20, 0.20, 2.0, 0.99, 0.50, 0.95, 15.0, 30
     },
     {
       "cut08_pairDCA_3mm",
@@ -1360,6 +1362,11 @@ void MakeK0sPairHistograms(
             (processedEntry - unlikeEntriesToProcess);
 
     chain.GetEntry(entry);
+
+    if (ignoreCrossingZero && (crossing1 == 0 || crossing2 == 0))
+    {
+      continue;
+    }
 
     const double qualityScale =
       ScaleQualityBy10 ? 10.0 : 1.0;
