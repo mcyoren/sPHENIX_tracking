@@ -305,42 +305,42 @@ namespace
       "h_mass_Kshort_vs_v0_pt",
       "K^{0}_{S} mass vs V0 p_{T}" + tag +
         ";p_{T}^{V0} [GeV/c];m_{#pi^{+}#pi^{-}} [GeV/c^{2}]",
-      50, 0., 5.,
+      100, 0., 10.,
       500, 0.0, 1.0);
 
     h.h_lambda_mass_vs_v0pt = new TH2F(
       "h_mass_Lambda_vs_v0_pt",
       "#Lambda mass vs V0 p_{T}, p_{T}(p)>p_{T}(#pi)" + tag +
         ";p_{T}^{V0} [GeV/c];m_{p#pi^{-}} [GeV/c^{2}]",
-      50, 0., 5.,
+      100, 0., 10.,
       300, 1.0, 1.3);
 
     h.h_antilambda_mass_vs_v0pt = new TH2F(
       "h_mass_AntiLambda_vs_v0_pt",
       "#bar{#Lambda} mass vs V0 p_{T}, p_{T}(#bar{p})>p_{T}(#pi)" + tag +
         ";p_{T}^{V0} [GeV/c];m_{#bar{p}#pi^{+}} [GeV/c^{2}]",
-      50, 0., 5.,
+      100, 0., 10.,
       300, 1.0, 1.3);
 
     h.h_phi_mass_vs_v0pt = new TH2F(
       "h_mass_Phi_vs_v0_pt",
       "#phi mass vs pair p_{T}" + tag +
         ";p_{T}^{pair} [GeV/c];m_{K^{+}K^{-}} [GeV/c^{2}]",
-      50, 0., 5.,
+      100, 0., 10.,
       300, 0.95, 1.10);
 
     h.h_d0_mass_vs_v0pt = new TH2F(
       "h_mass_D0_vs_v0_pt",
       "D^{0} mass vs pair p_{T}" + tag +
         ";p_{T}^{pair} [GeV/c];m_{K^{-}#pi^{+}} [GeV/c^{2}]",
-      50, 0., 5.,
+      100, 0., 10.,
       350, 1.65, 2.10);
 
     h.h_antid0_mass_vs_v0pt = new TH2F(
       "h_mass_AntiD0_vs_v0_pt",
       "#bar{D}^{0} mass vs pair p_{T}" + tag +
         ";p_{T}^{pair} [GeV/c];m_{K^{+}#pi^{-}} [GeV/c^{2}]",
-      50, 0., 5.,
+      100, 0., 10.,
       350, 1.65, 2.10);
 
     h.h_jpsi_mass_vs_v0pt = new TH2F(
@@ -399,8 +399,8 @@ namespace
       "K^{0}_{S}: daughter p_{T,1} vs p_{T,2} vs mass" + tag +
         ";p_{T,1}^{#pi} [GeV/c];p_{T,2}^{#pi} [GeV/c];"
         "m_{#pi^{+}#pi^{-}} [GeV/c^{2}]",
-      50, 0.0, 5.0,
-      50, 0.0, 5.0,
+      100, 0.0, 10.0,
+      100, 0.0, 10.0,
       40, 0.40, 0.60);
 
     h.h3_k0s_ptplus_vs_ptminus_vs_mass = new TH3F(
@@ -408,8 +408,8 @@ namespace
       "K^{0}_{S}: p_{T}^{#pi^{+}} vs p_{T}^{#pi^{-}} vs mass" + tag +
         ";p_{T}^{#pi^{+}} [GeV/c];p_{T}^{#pi^{-}} [GeV/c];"
         "m_{#pi^{+}#pi^{-}} [GeV/c^{2}]",
-      50, 0.0, 5.0,
-      50, 0.0, 5.0,
+      100, 0.0, 10.0,
+      100, 0.0, 10.0,
       40, 0.40, 0.60);
 
     h.h3_lambda = new TH3F(

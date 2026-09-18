@@ -8,11 +8,16 @@
 //
 //   * bachelor dE/dx QA;
 //   * ALEPH-style bachelor PID categories:
-//         pid_all
-//         pid_loose   |N_sigma| < 3
-//         pid_normal  |N_sigma| < 2
-//         pid_tight   |N_sigma| < 1
-//     Sigma/Xi use the pion hypothesis; Omega uses the kaon hypothesis.
+//         pid_all     no PID cut
+//         pid_loose   |N_sigma(target)| < 3
+//         pid_normal  |N_sigma(target)| < 3 AND min |N_sigma(other species)| > 1
+//         pid_tight   |N_sigma(target)| < 3 AND min |N_sigma(other species)| > 2
+//     Sigma/Xi: target = pion; competing species = K, p, d.
+//     Omega:    target = kaon; competing species = pi, p, d.
+//
+//     This keeps a wide 3-sigma efficiency window for the desired species and
+//     makes the working points progressively cleaner by vetoing the competing
+//     particle hypotheses rather than shrinking the target window to 2 or 1 sigma.
 //
 //   * Lambda-bachelor angular QA:
 //         opening angle in 3D
@@ -72,10 +77,20 @@
 
 namespace
 {
-constexpr double kLambdaMass = 1.115683;
-constexpr double kPionMass   = 0.13957039;
-constexpr double kKaonMass   = 0.493677;
-constexpr double kTwoPi      = 2.0 * TMath::Pi();
+constexpr double kLambdaMass   = 1.115683;
+constexpr double kPionMass     = 0.13957039;
+constexpr double kKaonMass     = 0.493677;
+constexpr double kProtonMass   = 0.938272088;
+constexpr double kDeuteronMass = 1.87561294257;
+constexpr double kTwoPi        = 2.0 * TMath::Pi();
+
+enum class DedxSpecies
+{
+  Pion,
+  Kaon,
+  Proton,
+  Deuteron
+};
 
 constexpr UInt_t kXi    = 1U << 0;
 constexpr UInt_t kOmega = 1U << 1;
@@ -171,52 +186,125 @@ double universalWidth(double expectedDedx)
 }
 
 // The pion kernel-smoothed width points were not tabulated in the presentation,
-// so for pion we keep the universal width.  For kaons use the published
-// momentum-dependent width-ratio correction, frozen outside its fit range.
+// so pion uses the universal width.  K, p, d use the published momentum-
+// dependent width-ratio corrections, frozen outside their fitted ranges.
 double kaonWidthRatio(double momentum)
 {
   constexpr double pLow  = 0.23;
   constexpr double pHigh = 0.53;
-
-  const double p =
-    std::clamp(momentum, pLow, pHigh);
-
-  return
-    0.910 +
-    0.628*(std::log(p) - std::log(pLow));
+  const double p = std::clamp(momentum, pLow, pHigh);
+  return 0.910 + 0.628*(std::log(p) - std::log(pLow));
 }
 
-double targetNSigma(double momentum,
-                    double dedx,
-                    double mass,
-                    bool useKaonWidthCorrection,
-                    double dedxScale)
+double protonWidthRatio(double momentum)
+{
+  constexpr double pLow  = 0.20;
+  constexpr double pHigh = 0.93;
+  const double p = std::clamp(momentum, pLow, pHigh);
+  return 1.077 - 0.037*(std::log(p) - std::log(pLow));
+}
+
+double deuteronWidthRatio(double momentum)
+{
+  constexpr double pLow  = 0.29;
+  constexpr double pHigh = 1.73;
+  const double p = std::clamp(momentum, pLow, pHigh);
+  return 0.834 + 0.164*(std::log(p) - std::log(pLow));
+}
+
+double speciesMass(DedxSpecies species)
+{
+  switch (species)
+  {
+    case DedxSpecies::Pion:     return kPionMass;
+    case DedxSpecies::Kaon:     return kKaonMass;
+    case DedxSpecies::Proton:   return kProtonMass;
+    case DedxSpecies::Deuteron: return kDeuteronMass;
+  }
+  return kPionMass;
+}
+
+double speciesWidthRatio(double momentum,
+                         DedxSpecies species)
+{
+  switch (species)
+  {
+    case DedxSpecies::Pion:     return 1.0;
+    case DedxSpecies::Kaon:     return kaonWidthRatio(momentum);
+    case DedxSpecies::Proton:   return protonWidthRatio(momentum);
+    case DedxSpecies::Deuteron: return deuteronWidthRatio(momentum);
+  }
+  return 1.0;
+}
+
+double speciesNSigma(double momentum,
+                     double dedx,
+                     DedxSpecies species,
+                     double dedxScale)
 {
   if (!(momentum > 0.0) ||
       !(dedx > 0.0) ||
-      !(mass > 0.0) ||
       !(dedxScale > 0.0))
   {
     return std::numeric_limits<double>::quiet_NaN();
   }
 
   const double expected =
-    alephExpectedDedx(momentum/mass);
+    alephExpectedDedx(momentum/speciesMass(species));
 
   if (!(expected > 0.0))
     return std::numeric_limits<double>::quiet_NaN();
 
   double sigma =
-    universalWidth(expected);
-
-  if (useKaonWidthCorrection)
-    sigma *= kaonWidthRatio(momentum);
+    universalWidth(expected) *
+    speciesWidthRatio(momentum, species);
 
   if (!(sigma > 0.0))
     return std::numeric_limits<double>::quiet_NaN();
 
   return
     (std::log(dedx*dedxScale) - std::log(expected))/sigma;
+}
+
+struct BachelorPidNSigma
+{
+  double pion{std::numeric_limits<double>::quiet_NaN()};
+  double kaon{std::numeric_limits<double>::quiet_NaN()};
+  double proton{std::numeric_limits<double>::quiet_NaN()};
+  double deuteron{std::numeric_limits<double>::quiet_NaN()};
+};
+
+BachelorPidNSigma makeBachelorPidNSigma(double momentum,
+                                        double dedx,
+                                        double dedxScale)
+{
+  BachelorPidNSigma pid;
+  pid.pion = speciesNSigma(momentum, dedx, DedxSpecies::Pion, dedxScale);
+  pid.kaon = speciesNSigma(momentum, dedx, DedxSpecies::Kaon, dedxScale);
+  pid.proton = speciesNSigma(momentum, dedx, DedxSpecies::Proton, dedxScale);
+  pid.deuteron = speciesNSigma(momentum, dedx, DedxSpecies::Deuteron, dedxScale);
+  return pid;
+}
+
+double minAbsCompetingNSigma(const BachelorPidNSigma& pid,
+                             DedxSpecies target)
+{
+  double minimum = std::numeric_limits<double>::infinity();
+
+  auto consider = [&minimum](double value)
+  {
+    if (std::isfinite(value))
+      minimum = std::min(minimum, std::abs(value));
+  };
+
+  if (target != DedxSpecies::Pion)     consider(pid.pion);
+  if (target != DedxSpecies::Kaon)     consider(pid.kaon);
+  if (target != DedxSpecies::Proton)   consider(pid.proton);
+  if (target != DedxSpecies::Deuteron) consider(pid.deuteron);
+
+  return std::isfinite(minimum)
+    ? minimum
+    : std::numeric_limits<double>::quiet_NaN();
 }
 
 // Charge-oriented signed opening:
@@ -665,6 +753,8 @@ struct AngularPidH
     *massVsPhiEtaRatio{},
     *massVsBachelorP{},
     *nSigmaVsBachelorP{},
+    *minAbsOtherNSigmaVsBachelorP{},
+    *nSigmaTargetVsMinOther{},
     *lnDedxVsBachelorP{};
 
   TH3F
@@ -754,6 +844,20 @@ AngularPidH bookAngularPid(TDirectory* d,
     100, 0.0, 5.0,
     160, -8.0, 8.0);
 
+  h.minAbsOtherNSigmaVsBachelorP = new TH2F(
+    "h_min_abs_other_nsigma_vs_bachelor_p",
+    (title+
+     ";p_{"+bachelorName+"} [GeV/c];min |N#sigma_{other}|").c_str(),
+    100, 0.0, 5.0,
+    120, 0.0, 12.0);
+
+  h.nSigmaTargetVsMinOther = new TH2F(
+    "h_nsigma_target_vs_min_abs_other",
+    (title+
+     ";min |N#sigma_{other}|;N#sigma_{"+pidName+"}").c_str(),
+    120, 0.0, 12.0,
+    160, -8.0, 8.0);
+
   h.lnDedxVsBachelorP = new TH2F(
     "h_lnDedx_vs_bachelor_p",
     (title+
@@ -787,6 +891,7 @@ void fillAngularPid(AngularPidH& h,
                     double bachelorP,
                     double bachelorDedx,
                     double nSigmaTarget,
+                    double minAbsOtherNSigma,
                     double signedDphi,
                     double opening,
                     double absDeta,
@@ -816,6 +921,15 @@ void fillAngularPid(AngularPidH& h,
 
   if (std::isfinite(nSigmaTarget))
     h.nSigmaVsBachelorP->Fill(bachelorP, nSigmaTarget);
+
+  if (std::isfinite(minAbsOtherNSigma))
+    h.minAbsOtherNSigmaVsBachelorP->Fill(bachelorP, minAbsOtherNSigma);
+
+  if (std::isfinite(nSigmaTarget) &&
+      std::isfinite(minAbsOtherNSigma))
+  {
+    h.nSigmaTargetVsMinOther->Fill(minAbsOtherNSigma, nSigmaTarget);
+  }
 
   if (bachelorDedx > 0.0)
     h.lnDedxVsBachelorP->Fill(
@@ -910,17 +1024,17 @@ PidFamily bookPidFamily(TDirectory* cutDirectory,
   looseDir->cd();
   TNamed(
     "pid_selection",
-    ("|Nsigma_"+targetPid+"| < loose threshold").c_str()).Write();
+    ("|Nsigma_"+targetPid+"| < target threshold").c_str()).Write();
 
   normalDir->cd();
   TNamed(
     "pid_selection",
-    ("|Nsigma_"+targetPid+"| < normal threshold").c_str()).Write();
+    ("|Nsigma_"+targetPid+"| < target threshold AND all competing species have |Nsigma| > normal veto").c_str()).Write();
 
   tightDir->cd();
   TNamed(
     "pid_selection",
-    ("|Nsigma_"+targetPid+"| < tight threshold").c_str()).Write();
+    ("|Nsigma_"+targetPid+"| < target threshold AND all competing species have |Nsigma| > tight veto").c_str()).Write();
 
   family.all =
     bookAngularPid(
@@ -929,7 +1043,7 @@ PidFamily bookPidFamily(TDirectory* cutDirectory,
       massMin,
       massMax,
       bachelorName,
-      "all");
+      targetPid);
 
   family.loose =
     bookAngularPid(
@@ -967,13 +1081,14 @@ void fillPidFamily(PidFamily& family,
                    double bachelorP,
                    double bachelorDedxScaled,
                    double nSigmaTarget,
+                   double minAbsOtherNSigma,
                    double signedDphi,
                    double opening,
                    double absDeta,
                    double phiEtaRatio,
-                   double pidLooseNSigma,
-                   double pidNormalNSigma,
-                   double pidTightNSigma,
+                   double pidTargetNSigma,
+                   double pidNormalOtherVetoNSigma,
+                   double pidTightOtherVetoNSigma,
                    double angleLooseAtZero,
                    double angleNormalAtZero,
                    double angleTightAtZero,
@@ -986,6 +1101,7 @@ void fillPidFamily(PidFamily& family,
     bachelorP,
     bachelorDedxScaled,
     nSigmaTarget,
+    minAbsOtherNSigma,
     signedDphi,
     opening,
     absDeta,
@@ -995,10 +1111,29 @@ void fillPidFamily(PidFamily& family,
     angleTightAtZero,
     angleZeroAtPt);
 
-  if (!std::isfinite(nSigmaTarget))
+  if (!std::isfinite(nSigmaTarget) ||
+      !std::isfinite(minAbsOtherNSigma))
+  {
     return;
+  }
 
-  if (std::abs(nSigmaTarget) < pidLooseNSigma)
+  // All PID working points deliberately keep the SAME broad target window.
+  // Cleanliness is increased only by vetoing all competing PID bands.
+  const bool passTarget =
+    std::abs(nSigmaTarget) < pidTargetNSigma;
+
+  const bool passLoose =
+    passTarget;
+
+  const bool passNormal =
+    passTarget &&
+    minAbsOtherNSigma > pidNormalOtherVetoNSigma;
+
+  const bool passTight =
+    passTarget &&
+    minAbsOtherNSigma > pidTightOtherVetoNSigma;
+
+  if (passLoose)
   {
     fillAngularPid(
       family.loose,
@@ -1007,6 +1142,7 @@ void fillPidFamily(PidFamily& family,
       bachelorP,
       bachelorDedxScaled,
       nSigmaTarget,
+      minAbsOtherNSigma,
       signedDphi,
       opening,
       absDeta,
@@ -1017,7 +1153,7 @@ void fillPidFamily(PidFamily& family,
       angleZeroAtPt);
   }
 
-  if (std::abs(nSigmaTarget) < pidNormalNSigma)
+  if (passNormal)
   {
     fillAngularPid(
       family.normal,
@@ -1026,6 +1162,7 @@ void fillPidFamily(PidFamily& family,
       bachelorP,
       bachelorDedxScaled,
       nSigmaTarget,
+      minAbsOtherNSigma,
       signedDphi,
       opening,
       absDeta,
@@ -1036,7 +1173,7 @@ void fillPidFamily(PidFamily& family,
       angleZeroAtPt);
   }
 
-  if (std::abs(nSigmaTarget) < pidTightNSigma)
+  if (passTight)
   {
     fillAngularPid(
       family.tight,
@@ -1045,6 +1182,7 @@ void fillPidFamily(PidFamily& family,
       bachelorP,
       bachelorDedxScaled,
       nSigmaTarget,
+      minAbsOtherNSigma,
       signedDphi,
       opening,
       absDeta,
@@ -1071,11 +1209,15 @@ void MakeSigmaCascadeHistograms(
     const double beamX=0.158,
     const double beamY=0.285,
 
-    // dE/dx scale and three nested PID working points.
+    // dE/dx scale and PID working points.
+    //
+    // loose:  |Nsigma(target)| < 3
+    // normal: |Nsigma(target)| < 3 AND |Nsigma(other)| > 1
+    // tight:  |Nsigma(target)| < 3 AND |Nsigma(other)| > 2
     const double dedxScale=0.015,
-    const double pidLooseNSigma=3.0,
-    const double pidNormalNSigma=2.0,
-    const double pidTightNSigma=1.0,
+    const double pidTargetNSigma=3.0,
+    const double pidNormalOtherVetoNSigma=1.0,
+    const double pidTightOtherVetoNSigma=2.0,
 
     // Exploratory signed-angle working points.
     //
@@ -1125,16 +1267,18 @@ void MakeSigmaCascadeHistograms(
 
   TNamed(
     "pid_definition",
-    "Sigma/Xi bachelor PID uses pion ALEPH Nsigma; Omega uses kaon ALEPH Nsigma. "
+    "Sigma/Xi: target pion with K/p/d vetoes. Omega: target kaon with pi/p/d vetoes. "
+    "Loose = |Ntarget|<3; normal = |Ntarget|<3 and |Nother|>1; "
+    "tight = |Ntarget|<3 and |Nother|>2. "
     "Pion width uses universal width; kaon uses the momentum-dependent width correction.").Write();
 
   TParameter<double>("beam_x_cm", beamX).Write();
   TParameter<double>("beam_y_cm", beamY).Write();
 
   TParameter<double>("dedx_scale", dedxScale).Write();
-  TParameter<double>("pid_loose_nsigma", pidLooseNSigma).Write();
-  TParameter<double>("pid_normal_nsigma", pidNormalNSigma).Write();
-  TParameter<double>("pid_tight_nsigma", pidTightNSigma).Write();
+  TParameter<double>("pid_target_nsigma", pidTargetNSigma).Write();
+  TParameter<double>("pid_normal_other_veto_nsigma", pidNormalOtherVetoNSigma).Write();
+  TParameter<double>("pid_tight_other_veto_nsigma", pidTightOtherVetoNSigma).Write();
 
   TParameter<double>("angle_loose_at_pt0_rad", angleLooseAtZero).Write();
   TParameter<double>("angle_normal_at_pt0_rad", angleNormalAtZero).Write();
@@ -1357,13 +1501,17 @@ void MakeSigmaCascadeHistograms(
       const double bachelorDedxScaled =
         bdedx * dedxScale;
 
-      const double pionNSigma =
-        targetNSigma(
+      const BachelorPidNSigma bachelorPid =
+        makeBachelorPidNSigma(
           bachelorP,
           bdedx,
-          kPionMass,
-          false,
           dedxScale);
+
+      const double pionNSigma = bachelorPid.pion;
+      const double minOtherForPion =
+        minAbsCompetingNSigma(
+          bachelorPid,
+          DedxSpecies::Pion);
 
       const double signedDphi =
         signedLambdaBachelorDeltaPhi(
@@ -1449,13 +1597,14 @@ void MakeSigmaCascadeHistograms(
           bachelorP,
           bachelorDedxScaled,
           pionNSigma,
+          minOtherForPion,
           signedDphi,
           open,
           absDeta,
           phiEtaRatio,
-          pidLooseNSigma,
-          pidNormalNSigma,
-          pidTightNSigma,
+          pidTargetNSigma,
+          pidNormalOtherVetoNSigma,
+          pidTightOtherVetoNSigma,
           angleLooseAtZero,
           angleNormalAtZero,
           angleTightAtZero,
@@ -1733,21 +1882,24 @@ void MakeSigmaCascadeHistograms(
       const double bachelorDedxScaled =
         bdedx * dedxScale;
 
-      const double pionNSigma =
-        targetNSigma(
+      const BachelorPidNSigma bachelorPid =
+        makeBachelorPidNSigma(
           bachelorP,
           bdedx,
-          kPionMass,
-          false,
           dedxScale);
 
-      const double kaonNSigma =
-        targetNSigma(
-          bachelorP,
-          bdedx,
-          kKaonMass,
-          true,
-          dedxScale);
+      const double pionNSigma = bachelorPid.pion;
+      const double kaonNSigma = bachelorPid.kaon;
+
+      const double minOtherForPion =
+        minAbsCompetingNSigma(
+          bachelorPid,
+          DedxSpecies::Pion);
+
+      const double minOtherForKaon =
+        minAbsCompetingNSigma(
+          bachelorPid,
+          DedxSpecies::Kaon);
 
       const double signedDphi =
         signedLambdaBachelorDeltaPhi(
@@ -1835,13 +1987,14 @@ void MakeSigmaCascadeHistograms(
             bachelorP,
             bachelorDedxScaled,
             pionNSigma,
+            minOtherForPion,
             signedDphi,
             open,
             absDeta,
             phiEtaRatio,
-            pidLooseNSigma,
-            pidNormalNSigma,
-            pidTightNSigma,
+            pidTargetNSigma,
+            pidNormalOtherVetoNSigma,
+            pidTightOtherVetoNSigma,
             angleLooseAtZero,
             angleNormalAtZero,
             angleTightAtZero,
@@ -1876,13 +2029,14 @@ void MakeSigmaCascadeHistograms(
             bachelorP,
             bachelorDedxScaled,
             kaonNSigma,
+            minOtherForKaon,
             signedDphi,
             open,
             absDeta,
             phiEtaRatio,
-            pidLooseNSigma,
-            pidNormalNSigma,
-            pidTightNSigma,
+            pidTargetNSigma,
+            pidNormalOtherVetoNSigma,
+            pidTightOtherVetoNSigma,
             angleLooseAtZero,
             angleNormalAtZero,
             angleTightAtZero,
