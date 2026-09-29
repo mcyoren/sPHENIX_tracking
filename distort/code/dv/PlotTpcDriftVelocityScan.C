@@ -43,7 +43,11 @@ namespace
     int run = 0;
     double cdbDV_cm_ns = std::numeric_limits<double>::quiet_NaN();
     double cdbT0_ns = std::numeric_limits<double>::quiet_NaN();
+    double phgT0Bins = std::numeric_limits<double>::quiet_NaN();
+    double phgT0_ns = std::numeric_limits<double>::quiet_NaN();
+    double deltaT0_ns = std::numeric_limits<double>::quiet_NaN();
     double correctedDV_cm_ns = std::numeric_limits<double>::quiet_NaN();
+    double t0CorrectionFactor = std::numeric_limits<double>::quiet_NaN();
     double garfieldSouth_cm_us = std::numeric_limits<double>::quiet_NaN();
     double garfieldNorth_cm_us = std::numeric_limits<double>::quiet_NaN();
     double garfieldCombined_cm_us = std::numeric_limits<double>::quiet_NaN();
@@ -123,6 +127,25 @@ namespace
       if (std::isfinite(garf) && finitePositive(cdb))
       {
         g->SetPoint(g->GetN(), r.run, garf / cdb);
+      }
+    }
+    return g;
+  }
+
+  std::unique_ptr<TGraph> MakeRatioToCorrectedCdbRunGraph(
+      const std::vector<RunData> &runs,
+      double RunData::*garfieldMember,
+      const char *name)
+  {
+    auto g = std::make_unique<TGraph>();
+    g->SetName(name);
+    for (const auto &r : runs)
+    {
+      const double garf = r.*garfieldMember;
+      const double cdbCorr = 1000.0 * r.correctedDV_cm_ns;
+      if (std::isfinite(garf) && finitePositive(cdbCorr))
+      {
+        g->SetPoint(g->GetN(), r.run, garf / cdbCorr);
       }
     }
     return g;
@@ -360,7 +383,18 @@ void PlotTpcDriftVelocityScan(
     tree->SetBranchAddress("run", &d.run);
     tree->SetBranchAddress("cdb_drift_velocity_cm_ns", &d.cdbDV_cm_ns);
     tree->SetBranchAddress("cdb_tzero_ns", &d.cdbT0_ns);
+
+    if (tree->GetBranch("phgarfield_t0_bins"))
+      tree->SetBranchAddress("phgarfield_t0_bins", &d.phgT0Bins);
+    if (tree->GetBranch("phgarfield_t0_ns"))
+      tree->SetBranchAddress("phgarfield_t0_ns", &d.phgT0_ns);
+    if (tree->GetBranch("delta_t0_phg_minus_cdb_ns"))
+      tree->SetBranchAddress("delta_t0_phg_minus_cdb_ns", &d.deltaT0_ns);
+
     tree->SetBranchAddress("cdb_drift_velocity_t0corr_cm_ns", &d.correctedDV_cm_ns);
+
+    if (tree->GetBranch("cdb_t0_correction_factor"))
+      tree->SetBranchAddress("cdb_t0_correction_factor", &d.t0CorrectionFactor);
     tree->SetBranchAddress("garfield_mean_vz_south_cm_us", &d.garfieldSouth_cm_us);
     tree->SetBranchAddress("garfield_mean_vz_north_cm_us", &d.garfieldNorth_cm_us);
     tree->SetBranchAddress("garfield_mean_vz_combined_cm_us", &d.garfieldCombined_cm_us);
@@ -473,6 +507,100 @@ void PlotTpcDriftVelocityScan(
     leg.Draw();
 
     SaveCanvas(c, plotDir, "02_garfield_over_cdb_vs_run");
+  }
+
+
+  // ----------------------------------------------------------------------
+  // 2b. t0 correction itself and PHGarfield / t0-corrected CDB
+  // ----------------------------------------------------------------------
+  auto gT0Cdb = MakeRunGraph(runs, &RunData::cdbT0_ns, "g_cdb_t0_ns");
+  auto gT0Phg = MakeRunGraph(runs, &RunData::phgT0_ns, "g_phg_t0_ns");
+  auto gDeltaT0 = MakeRunGraph(runs, &RunData::deltaT0_ns, "g_delta_t0_ns");
+  auto gT0Factor = MakeRunGraph(runs, &RunData::t0CorrectionFactor, "g_t0_correction_factor");
+
+  StyleGraph(gT0Cdb.get(), 20);
+  StyleGraph(gT0Phg.get(), 21);
+  StyleGraph(gDeltaT0.get(), 20);
+  StyleGraph(gT0Factor.get(), 20);
+
+  {
+    TCanvas c("c_t0_vs_run", "", 1600, 900);
+    c.SetGrid();
+    gT0Cdb->SetTitle("CDB and PHGarfield t_{0};run;t_{0} [ns]");
+    gT0Cdb->Draw("APL");
+    gT0Phg->Draw("PL SAME");
+
+    TLegend leg(0.14, 0.76, 0.36, 0.89);
+    leg.SetBorderSize(0);
+    leg.AddEntry(gT0Cdb.get(), "CDB t_{0}", "lp");
+    leg.AddEntry(gT0Phg.get(), "PHGarfield t_{0} = 8 bins", "lp");
+    leg.Draw();
+
+    SaveCanvas(c, plotDir, "03a_t0_cdb_and_phgarfield_vs_run");
+  }
+
+  {
+    TCanvas c("c_delta_t0", "", 1600, 800);
+    c.SetGrid();
+    gDeltaT0->SetTitle("#Delta t_{0} = t_{0}^{PHG} - t_{0}^{CDB};run;#Delta t_{0} [ns]");
+    gDeltaT0->Draw("APL");
+    SaveCanvas(c, plotDir, "03b_delta_t0_vs_run");
+  }
+
+  {
+    TCanvas c("c_t0_factor", "", 1600, 800);
+    c.SetGrid();
+    gT0Factor->SetTitle("CDB drift-velocity t_{0} correction factor;run;v_{CDB}^{t0 corr}/v_{CDB}");
+    gT0Factor->Draw("APL");
+
+    if (gT0Factor->GetN() > 0)
+    {
+      const double xmin = gT0Factor->GetX()[0];
+      const double xmax = gT0Factor->GetX()[gT0Factor->GetN()-1];
+      TLine one(xmin, 1.0, xmax, 1.0);
+      one.SetLineStyle(2);
+      one.Draw();
+    }
+
+    SaveCanvas(c, plotDir, "03c_cdb_t0_correction_factor_vs_run");
+  }
+
+  auto gRatioCorrS = MakeRatioToCorrectedCdbRunGraph(
+      runs, &RunData::garfieldSouth_cm_us, "g_ratio_corr_south");
+  auto gRatioCorrN = MakeRatioToCorrectedCdbRunGraph(
+      runs, &RunData::garfieldNorth_cm_us, "g_ratio_corr_north");
+  auto gRatioCorrC = MakeRatioToCorrectedCdbRunGraph(
+      runs, &RunData::garfieldCombined_cm_us, "g_ratio_corr_combined");
+
+  StyleGraph(gRatioCorrS.get(), 20);
+  StyleGraph(gRatioCorrN.get(), 21);
+  StyleGraph(gRatioCorrC.get(), 24);
+
+  {
+    TCanvas c("c_ratio_corr_vs_run", "", 1600, 900);
+    c.SetGrid();
+    gRatioCorrC->SetTitle("PHGarfield / t_{0}-corrected CDB drift velocity;run;v_{PHGarfield}/v_{CDB}^{t0 corr}");
+    gRatioCorrC->Draw("APL");
+    gRatioCorrS->Draw("PL SAME");
+    gRatioCorrN->Draw("PL SAME");
+
+    if (gRatioCorrC->GetN() > 0)
+    {
+      const double xmin = gRatioCorrC->GetX()[0];
+      const double xmax = gRatioCorrC->GetX()[gRatioCorrC->GetN()-1];
+      TLine one(xmin, 1.0, xmax, 1.0);
+      one.SetLineStyle(2);
+      one.Draw();
+    }
+
+    TLegend leg(0.14, 0.74, 0.35, 0.89);
+    leg.SetBorderSize(0);
+    leg.AddEntry(gRatioCorrC.get(), "combined", "lp");
+    leg.AddEntry(gRatioCorrS.get(), "south", "lp");
+    leg.AddEntry(gRatioCorrN.get(), "north", "lp");
+    leg.Draw();
+
+    SaveCanvas(c, plotDir, "03d_garfield_over_t0corrected_cdb_vs_run");
   }
 
   auto gDiffS = MakeRelativeDifferenceRunGraph(runs, &RunData::garfieldSouth_cm_us, "g_diff_south");
@@ -737,6 +865,8 @@ void PlotTpcDriftVelocityScan(
 
   gSouth->Write(); gNorth->Write(); gCombined->Write(); gCdb->Write(); gCdbT0->Write();
   gRatioS->Write(); gRatioN->Write(); gRatioC->Write();
+  gRatioCorrS->Write(); gRatioCorrN->Write(); gRatioCorrC->Write();
+  gT0Cdb->Write(); gT0Phg->Write(); gDeltaT0->Write(); gT0Factor->Write();
   gDiffS->Write(); gDiffN->Write(); gDiffC->Write();
   gField->Write(); gPressure->Write(); gTemp->Write();
 

@@ -7,7 +7,7 @@
 //   * set the nominal CM field with Townsend E/N scaling relative to run 79513
 //   * compare PHGarfield drift velocity with TPC_DRIFT_VELOCITY from CDB
 //   * read TPC_TZERO_OFFSET directly from CDB
-//   * optionally correct the CDB drift velocity for a separately measured t0
+//   * correct the CDB drift velocity to PHGarfield's fixed t0 = 8 time bins
 //   * calculate local velocity from every ReverseDrift polyline step
 //   * save 1D velocity distributions and <vz> maps vs r-z and r-phi
 //
@@ -57,8 +57,12 @@ R__LOAD_LIBRARY(libPHGarfield.so)
 namespace TpcDVScan
 {
   constexpr int kReferenceRun = 79513;
-  constexpr double kReferenceCMField_Vcm = 377.0;
+  constexpr double kReferenceCMField_Vcm = 376.85;
   constexpr int kNLayers = 48;
+
+  // PHGarfield comparison convention: t0 = 8 ordinary TPC time bins.
+  constexpr double kPHGarfieldT0Bins = 8.0;
+  constexpr double kTpcTimeBin_ns = 56.8;
 
   struct RunConditions
   {
@@ -178,39 +182,34 @@ namespace TpcDVScan
 
     // Keep E/N fixed: E*T/P = const.
     // E_new = E_ref * (P_new/P_ref) * (T_ref/T_new).
-    return kReferenceCMField_Vcm *
-           (run.pressure / ref.pressure) *
+    return kReferenceCMField_Vcm /
+           (run.pressure / ref.pressure) /
            (ref.temperatureK / run.temperatureK);
   }
 
-  double T0CorrectedCdbVelocity(const double cdbVelocity_cm_ns,
-                                const double cdbT0_ns,
-                                const double measuredT0_8bin,
-                                const double samplePeriod_ns,
-                                const double driftLength_cm)
+  double CorrectCdbVelocityToPHGarfieldT0(const double cdbVelocity_cm_ns,
+                                             const double cdbT0_ns,
+                                             const double driftLength_cm)
   {
     if (!std::isfinite(cdbVelocity_cm_ns) || cdbVelocity_cm_ns <= 0.0 ||
-        !std::isfinite(cdbT0_ns) || !std::isfinite(measuredT0_8bin) ||
-        samplePeriod_ns <= 0.0 || driftLength_cm <= 0.0)
+        !std::isfinite(cdbT0_ns) || driftLength_cm <= 0.0)
     {
       return std::numeric_limits<double>::quiet_NaN();
     }
 
-    // User t0 is supplied in units of 8 SAMPA time bins.
-    const double measuredT0_ns = measuredT0_8bin * 8.0 * samplePeriod_ns;
-    const double deltaT0_ns = measuredT0_ns - cdbT0_ns;
+    const double phgT0_ns = -kPHGarfieldT0Bins * kTpcTimeBin_ns;
+    const double deltaT0_ns = phgT0_ns - cdbT0_ns;
 
-    // Sign convention used here:
-    // arrival_time = t0 + drift_time.
-    // Therefore a larger t0 means a shorter inferred drift time for the same
-    // CM endpoint, and hence a larger corrected drift velocity.
+    // Same CM-to-pad distance:
+    // larger subtracted t0 -> smaller inferred drift time -> larger DV.
     const double cdbDriftTime_ns = driftLength_cm / cdbVelocity_cm_ns;
-    const double correctedDriftTime_ns = cdbDriftTime_ns - deltaT0_ns;
+    const double correctedDriftTime_ns = cdbDriftTime_ns + deltaT0_ns;
 
     if (correctedDriftTime_ns <= 0.0)
     {
       return std::numeric_limits<double>::quiet_NaN();
     }
+
     return driftLength_cm / correctedDriftTime_ns;
   }
 
@@ -368,19 +367,16 @@ void Fun4All_TpcDriftVelocityScan(
     int runnumber = 79513,
     const std::string &inputFile =
         "/sphenix/lustre01/sphnxpro/production/run3pp/physics/ana532_nocdbtag_v001/DST_STREAMING_EVENT_ebdc00_0/run_00079500_00079600/DST_STREAMING_EVENT_ebdc00_0_run3pp_ana532_nocdbtag_v001-00079513-00000.root",
-    const double measuredT0_8bin = std::numeric_limits<double>::quiet_NaN(),
     const int nPhi = 24,
     const double reverseDriftStep_ns = 56.8,
-    const std::string &outputDir = ".",
+    const std::string &outputDir = "/sphenix/tg/tg01/hf/mitrankov/dv/rootfiles",
     const std::string &globalTag = "newcdbtag")
 {
   using namespace TpcDVScan;
 
   if (inputFile.empty())
   {
-    std::cerr << "Need one DST input file from run " << runnumber
-              << " containing the RUN geometry nodes (in particular TPCGEOMCONTAINER)."
-              << std::endl;
+    std::cerr << "Need one event DST input to drive Fun4All::run(1)." << std::endl;
     return;
   }
   if (nPhi < 1 || reverseDriftStep_ns <= 0.0)
@@ -535,35 +531,43 @@ void Fun4All_TpcDriftVelocityScan(
             << "\n  z pad south      = " << zPadSouth_cm << " cm"
             << std::endl;
 
-  const double measuredT0ForCorrection_8bin =
-      (std::isfinite(measuredT0_8bin) && measuredT0_8bin > -900.0)
-          ? measuredT0_8bin
-          : std::numeric_limits<double>::quiet_NaN();
+  // -------------------------------------------------------------------------
+  // Correct the single CDB DV value to the PHGarfield t0 convention.
+  //
+  // PHGarfield: fixed t0 = 8 ordinary TPC time bins.
+  // CDB:        t0 from TPC_TZERO_OFFSET.
+  // -------------------------------------------------------------------------
+  const double phgT0_ns = -kPHGarfieldT0Bins * kTpcTimeBin_ns;
+  const double deltaT0_ns = phgT0_ns - cdbReco.tzero_ns;
 
   const double cdbVelocityT0Corrected_cm_ns =
-      T0CorrectedCdbVelocity(cdbReco.driftVelocity_cm_ns,
-                             cdbReco.tzero_ns,
-                             measuredT0ForCorrection_8bin,
-                             reverseDriftStep_ns,
-                             maxDriftLength_cm);
+      CorrectCdbVelocityToPHGarfieldT0(cdbReco.driftVelocity_cm_ns,
+                                      cdbReco.tzero_ns,
+                                      maxDriftLength_cm);
 
-  if (std::isfinite(measuredT0ForCorrection_8bin))
-  {
-    const double measuredT0_ns = measuredT0ForCorrection_8bin * 8.0 * reverseDriftStep_ns;
-    std::cout << "Measured t0 = " << measuredT0_8bin << " x 8 time bins = "
-              << measuredT0_ns << " ns\n"
-              << "t0-corrected CDB drift velocity = "
-              << cdbVelocityT0Corrected_cm_ns << " cm/ns = "
-              << 1000.0 * cdbVelocityT0Corrected_cm_ns << " cm/us"
-              << std::endl;
-  }
+  const double cdbT0CorrectionFactor =
+      (std::isfinite(cdbVelocityT0Corrected_cm_ns) &&
+       std::isfinite(cdbReco.driftVelocity_cm_ns) &&
+       cdbReco.driftVelocity_cm_ns > 0.0)
+          ? cdbVelocityT0Corrected_cm_ns / cdbReco.driftVelocity_cm_ns
+          : std::numeric_limits<double>::quiet_NaN();
+
+  std::cout << std::setprecision(10)
+            << "\nT0 comparison:"
+            << "\n  PHGarfield t0       = " << kPHGarfieldT0Bins
+            << " time bins = " << phgT0_ns << " ns"
+            << "\n  CDB t0              = " << cdbReco.tzero_ns << " ns"
+            << "\n  delta t0 (PHG-CDB)  = " << deltaT0_ns << " ns"
+            << "\n  CDB DV raw          = " << 1000.0 * cdbReco.driftVelocity_cm_ns << " cm/us"
+            << "\n  CDB DV t0-corrected = " << 1000.0 * cdbVelocityT0Corrected_cm_ns << " cm/us"
+            << "\n  correction factor   = " << cdbT0CorrectionFactor
+            << std::endl;
 
   // -------------------------------------------------------------------------
   // 4. Output histograms and all-step velocity maps.
   // -------------------------------------------------------------------------
   const std::string outputName =
-    "/sphenix/tg/tg01/hf/mitrankov/dv/rootfiles/tpc_dv_scan_run" +
-    std::to_string(runnumber) + ".root";
+      outputDir + "/tpc_dv_scan_run" + std::to_string(runnumber) + ".root";
   std::unique_ptr<TFile> output(TFile::Open(outputName.c_str(), "RECREATE"));
   if (!output || output->IsZombie())
   {
@@ -636,6 +640,33 @@ void Fun4All_TpcDriftVelocityScan(
                                               static_cast<double>(nStepsSouth + nStepsNorth)
                                         : std::numeric_limits<double>::quiet_NaN();
 
+  const double cdbDV_cm_us = 1000.0 * cdbReco.driftVelocity_cm_ns;
+  const double cdbDV_t0corr_cm_us = 1000.0 * cdbVelocityT0Corrected_cm_ns;
+
+  double phgOverCdbSouth = std::numeric_limits<double>::quiet_NaN();
+  double phgOverCdbNorth = std::numeric_limits<double>::quiet_NaN();
+  double phgOverCdbCombined = std::numeric_limits<double>::quiet_NaN();
+
+  double phgOverCdbT0South = std::numeric_limits<double>::quiet_NaN();
+  double phgOverCdbT0North = std::numeric_limits<double>::quiet_NaN();
+  double phgOverCdbT0Combined = std::numeric_limits<double>::quiet_NaN();
+
+  if (std::isfinite(cdbDV_cm_us) && cdbDV_cm_us > 0.0)
+  {
+    phgOverCdbSouth = garfieldVzSouth_cm_us / cdbDV_cm_us;
+    phgOverCdbNorth = garfieldVzNorth_cm_us / cdbDV_cm_us;
+    phgOverCdbCombined = garfieldVzCombined_cm_us / cdbDV_cm_us;
+  }
+
+  if (std::isfinite(cdbDV_t0corr_cm_us) && cdbDV_t0corr_cm_us > 0.0)
+  {
+    phgOverCdbT0South = garfieldVzSouth_cm_us / cdbDV_t0corr_cm_us;
+    phgOverCdbT0North = garfieldVzNorth_cm_us / cdbDV_t0corr_cm_us;
+    phgOverCdbT0Combined = garfieldVzCombined_cm_us / cdbDV_t0corr_cm_us;
+  }
+
+  const double fieldScale = cmField_Vcm / kReferenceCMField_Vcm;
+
   output->cd();
   WriteSideHistograms(hSouth);
   WriteSideHistograms(hNorth);
@@ -654,8 +685,13 @@ void Fun4All_TpcDriftVelocityScan(
   double field = cmField_Vcm;
   double cdbDV = cdbReco.driftVelocity_cm_ns;
   double cdbT0 = cdbReco.tzero_ns;
-  double measuredT0 = measuredT0ForCorrection_8bin;
+  double phgT0Bins = kPHGarfieldT0Bins;
+  double tpcTimeBinNs = kTpcTimeBin_ns;
+  double phgT0Ns = phgT0_ns;
+  double deltaT0Ns = deltaT0_ns;
   double correctedDV = cdbVelocityT0Corrected_cm_ns;
+  double t0CorrectionFactor = cdbT0CorrectionFactor;
+  double fieldScaleOut = fieldScale;
   double stepNs = reverseDriftStep_ns;
   double driftLength = maxDriftLength_cm;
   double zPadN = zPadNorth_cm;
@@ -674,8 +710,13 @@ void Fun4All_TpcDriftVelocityScan(
   summary.Branch("cm_field_Vcm", &field);
   summary.Branch("cdb_drift_velocity_cm_ns", &cdbDV);
   summary.Branch("cdb_tzero_ns", &cdbT0);
-  summary.Branch("measured_t0_8bin", &measuredT0);
+  summary.Branch("phgarfield_t0_bins", &phgT0Bins);
+  summary.Branch("tpc_time_bin_ns", &tpcTimeBinNs);
+  summary.Branch("phgarfield_t0_ns", &phgT0Ns);
+  summary.Branch("delta_t0_phg_minus_cdb_ns", &deltaT0Ns);
   summary.Branch("cdb_drift_velocity_t0corr_cm_ns", &correctedDV);
+  summary.Branch("cdb_t0_correction_factor", &t0CorrectionFactor);
+  summary.Branch("cm_field_scale_vs_reference", &fieldScaleOut);
   summary.Branch("reverse_drift_step_ns", &stepNs);
   summary.Branch("max_drift_length_cm", &driftLength);
   summary.Branch("z_pad_north_cm", &zPadN);
@@ -683,6 +724,12 @@ void Fun4All_TpcDriftVelocityScan(
   summary.Branch("garfield_mean_vz_south_cm_us", &garfieldVzSouth_cm_us);
   summary.Branch("garfield_mean_vz_north_cm_us", &garfieldVzNorth_cm_us);
   summary.Branch("garfield_mean_vz_combined_cm_us", &garfieldVzCombined_cm_us);
+  summary.Branch("phgarfield_over_cdb_south", &phgOverCdbSouth);
+  summary.Branch("phgarfield_over_cdb_north", &phgOverCdbNorth);
+  summary.Branch("phgarfield_over_cdb_combined", &phgOverCdbCombined);
+  summary.Branch("phgarfield_over_cdb_t0corr_south", &phgOverCdbT0South);
+  summary.Branch("phgarfield_over_cdb_t0corr_north", &phgOverCdbT0North);
+  summary.Branch("phgarfield_over_cdb_t0corr_combined", &phgOverCdbT0Combined);
   summary.Branch("n_steps_south", &nStepsSouth);
   summary.Branch("n_steps_north", &nStepsNorth);
   summary.Branch("n_trajectories_south", &nTrajectoriesSouth);
@@ -699,16 +746,22 @@ void Fun4All_TpcDriftVelocityScan(
   output->Close();
 
   std::cout << std::setprecision(8)
-            << "\nPHGarfield all-step mean outward vz:\n"
-            << "  South   = " << garfieldVzSouth_cm_us << " cm/us\n"
-            << "  North   = " << garfieldVzNorth_cm_us << " cm/us\n"
-            << "  Combined= " << garfieldVzCombined_cm_us << " cm/us\n"
-            << "CDB       = " << 1000.0 * cdbReco.driftVelocity_cm_ns << " cm/us\n";
-  if (std::isfinite(cdbVelocityT0Corrected_cm_ns))
-  {
-    std::cout << "CDB(t0 corrected) = "
-              << 1000.0 * cdbVelocityT0Corrected_cm_ns << " cm/us\n";
-  }
+            << "\n================ DV comparison ================\n"
+            << "PHGarfield south        = " << garfieldVzSouth_cm_us << " cm/us\n"
+            << "PHGarfield north        = " << garfieldVzNorth_cm_us << " cm/us\n"
+            << "PHGarfield combined     = " << garfieldVzCombined_cm_us << " cm/us\n"
+            << "CDB raw                 = " << cdbDV_cm_us << " cm/us\n"
+            << "CDB corrected to PHG t0 = " << cdbDV_t0corr_cm_us << " cm/us\n"
+            << "\nRatios to raw CDB:\n"
+            << "  PHG south / CDB       = " << phgOverCdbSouth << "\n"
+            << "  PHG north / CDB       = " << phgOverCdbNorth << "\n"
+            << "  PHG combined / CDB    = " << phgOverCdbCombined << "\n"
+            << "  CDB(t0corr) / CDB     = " << cdbT0CorrectionFactor << "\n"
+            << "\nRatios to t0-corrected CDB:\n"
+            << "  PHG south / CDBcorr   = " << phgOverCdbT0South << "\n"
+            << "  PHG north / CDBcorr   = " << phgOverCdbT0North << "\n"
+            << "  PHG combined / CDBcorr= " << phgOverCdbT0Combined << "\n"
+            << "================================================\n";
   std::cout << "Saved: " << outputName << std::endl;
 
   se->End();
