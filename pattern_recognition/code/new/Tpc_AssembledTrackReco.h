@@ -8,6 +8,7 @@
 
 class IdealPadMap;
 
+#include <array>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -36,6 +37,8 @@ class Tpc_AssembledTrackReco : public SubsysReco
   int process_event(PHCompositeNode*) override;
   int End(PHCompositeNode*) override;
 
+  static constexpr unsigned int kRegionCount = 3;
+
   void setInputNodeName(const std::string& n) { m_inputNodeName = n; }
   void setOutputNodeName(const std::string& n) { m_outputNodeName = n; }
   void setDebugOutputFileName(const std::string& n) { m_debugOutputFileName = n; }
@@ -47,20 +50,44 @@ class Tpc_AssembledTrackReco : public SubsysReco
   // Loose linear-phi preselection before exact sagitta matching.
   void setLinearPhiPrecutScale(double v) { m_linearPhiPrecutScale = v; }
 
-  void setConnectMaxLayerGap(unsigned int n) { m_connectMaxLayerGap = n; }
+  // Existing setters remain backward compatible and apply one value to R1/R2/R3.
+  // Region-specific setters use TpcDefs region numbering: 0=R1, 1=R2, 2=R3.
+  // For a connection crossing a region boundary, the destination/outer piece
+  // determines which region's cuts are used.
+  void setConnectMaxLayerGap(unsigned int n) { m_connectMaxLayerGap.fill(n); }
+  void setRegionConnectMaxLayerGap(unsigned int region, unsigned int n)
+  {
+    if (region < kRegionCount) m_connectMaxLayerGap[region] = n;
+  }
 
   // Connection window in global phi radians and tbin units at match radius.
   void setConnectWindow(double dphi, double dtbin)
   {
-    m_connect_dphi = dphi;
-    m_connect_dtbin = dtbin;
+    m_connect_dphi.fill(dphi);
+    m_connect_dtbin.fill(dtbin);
+  }
+
+  void setRegionConnectWindow(unsigned int region, double dphi, double dtbin)
+  {
+    if (region >= kRegionCount) return;
+    m_connect_dphi[region] = dphi;
+    m_connect_dtbin[region] = dtbin;
   }
 
   // Slope windows: d(phi)/d(radius) and d(tbin)/d(radius).
   void setConnectSlopeWindow(double dphi_slope, double dtbin_slope)
   {
-    m_connect_dphi_slope = dphi_slope;
-    m_connect_dtbin_slope = dtbin_slope;
+    m_connect_dphi_slope.fill(dphi_slope);
+    m_connect_dtbin_slope.fill(dtbin_slope);
+  }
+
+  void setRegionConnectSlopeWindow(unsigned int region,
+                                   double dphi_slope,
+                                   double dtbin_slope)
+  {
+    if (region >= kRegionCount) return;
+    m_connect_dphi_slope[region] = dphi_slope;
+    m_connect_dtbin_slope[region] = dtbin_slope;
   }
 
   void setUseSagittaPhiFit(bool v) { m_useSagittaPhiFit = v; }
@@ -199,6 +226,11 @@ class Tpc_AssembledTrackReco : public SubsysReco
   };
 
  private:
+  static unsigned int region_index(unsigned int region)
+  {
+    return region < kRegionCount ? region : (kRegionCount - 1);
+  }
+
   int getNodes(PHCompositeNode*);
   int createNodes(PHCompositeNode*);
   void reset_tree_vars();
@@ -286,11 +318,12 @@ class Tpc_AssembledTrackReco : public SubsysReco
   int m_event;
   IdealPadMap* m_idealPadMap;
 
-  unsigned int m_connectMaxLayerGap;
-  double m_connect_dphi;
-  double m_connect_dtbin;
-  double m_connect_dphi_slope;
-  double m_connect_dtbin_slope;
+  // Region-dependent connection cuts. Index 0/1/2 = R1/R2/R3.
+  std::array<unsigned int, kRegionCount> m_connectMaxLayerGap;
+  std::array<double, kRegionCount> m_connect_dphi;
+  std::array<double, kRegionCount> m_connect_dtbin;
+  std::array<double, kRegionCount> m_connect_dphi_slope;
+  std::array<double, kRegionCount> m_connect_dtbin_slope;
   bool m_useSagittaPhiFit;
   bool m_useAnalyticSagittaSlope;
   bool m_doDebugHistograms;
@@ -315,27 +348,29 @@ class Tpc_AssembledTrackReco : public SubsysReco
   double m_seedSigmaPy;
   double m_seedSigmaPz;
 
-  // Debug matching histograms
-  TH1D* m_h_dphi;
-  TH1D* m_h_dtbin;
-  TH1D* m_h_dmphi;
-  TH1D* m_h_dmtbin;
-  TH1D* m_h_score;
+  // Pairwise matching QA is split by destination region, matching the region
+  // whose numerical connection cuts are applied. Track-level 3-module QA and
+  // nsegments remain global because those objects span multiple regions.
+  std::array<TH1D*, kRegionCount> m_h_dphi{};
+  std::array<TH1D*, kRegionCount> m_h_dtbin{};
+  std::array<TH1D*, kRegionCount> m_h_dmphi{};
+  std::array<TH1D*, kRegionCount> m_h_dmtbin{};
+  std::array<TH1D*, kRegionCount> m_h_score{};
 
-  TH2D* m_h_dphi_vs_dtbin;
-  TH2D* m_h_dmphi_vs_dmtbin;
-  TH2D* m_h_dphi_vs_dmphi;
+  std::array<TH2D*, kRegionCount> m_h_dphi_vs_dtbin{};
+  std::array<TH2D*, kRegionCount> m_h_dmphi_vs_dmtbin{};
+  std::array<TH2D*, kRegionCount> m_h_dphi_vs_dmphi{};
 
-  TH2D* m_h_tbin_slope_vs_first_tbin;
-  TH2D* m_h_tbin_slope_vs_last_tbin;
+  std::array<TH2D*, kRegionCount> m_h_tbin_slope_vs_first_tbin{};
+  std::array<TH2D*, kRegionCount> m_h_tbin_slope_vs_last_tbin{};
 
   TH2D* m_h_track_tbin_slope_vs_tbin_span_3modules;
   TH2D* m_h_track_tbin_slope_vs_first_tbin_3modules;
   TH2D* m_h_track_tbin_slope_vs_last_tbin_3modules;
 
-  TH1D* m_h_layer_gap;
+  std::array<TH1D*, kRegionCount> m_h_layer_gap{};
   TH1D* m_h_nsegments;
-  TH1D* m_h_matched_sector_delta;
+  std::array<TH1D*, kRegionCount> m_h_matched_sector_delta{};
 
   mutable std::mutex m_debugMutex;
 

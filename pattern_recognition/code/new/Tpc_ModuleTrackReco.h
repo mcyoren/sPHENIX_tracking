@@ -311,10 +311,23 @@ class Tpc_ModuleTrackReco : public SubsysReco
     m_pedestal = p;
   }
 
+  // TPC region numbering follows TpcDefs: 0=R1, 1=R2, 2=R3.
+  static constexpr unsigned int kRegionCount = 3;
+
+  // Existing setters remain backward compatible: they apply the same value to
+  // all three TPC regions. The setRegion* variants allow independent R1/R2/R3
+  // tuning without changing reconstruction logic.
   void setBlobWindow(int dt, int dp)
   {
-    m_blob_dt = dt;
-    m_blob_dp = dp;
+    m_blob_dt.fill(dt);
+    m_blob_dp.fill(dp);
+  }
+
+  void setRegionBlobWindow(unsigned int region, int dt, int dp)
+  {
+    if (region >= kRegionCount) return;
+    m_blob_dt[region] = dt;
+    m_blob_dp[region] = dp;
   }
 
   // Backward-compatible setter. It makes Pass-1 TIGHT and BROAD identical.
@@ -322,18 +335,38 @@ class Tpc_ModuleTrackReco : public SubsysReco
   // this reproduces the old 6x6 adjacent-layer growth logic.
   void setSearchWindow(int dt, int dp)
   {
-    m_pass1Tight_dt = dt;
-    m_pass1Tight_dp = dp;
-    m_pass1Broad_dt = dt;
-    m_pass1Broad_dp = dp;
+    m_pass1Tight_dt.fill(dt);
+    m_pass1Tight_dp.fill(dp);
+    m_pass1Broad_dt.fill(dt);
+    m_pass1Broad_dp.fill(dp);
+  }
+
+  void setRegionSearchWindow(unsigned int region, int dt, int dp)
+  {
+    if (region >= kRegionCount) return;
+    m_pass1Tight_dt[region] = dt;
+    m_pass1Tight_dp[region] = dp;
+    m_pass1Broad_dt[region] = dt;
+    m_pass1Broad_dp[region] = dp;
   }
 
   void setPass1Window(int tight_dt, int tight_dp, int broad_dt, int broad_dp)
   {
-    m_pass1Tight_dt = tight_dt;
-    m_pass1Tight_dp = tight_dp;
-    m_pass1Broad_dt = broad_dt;
-    m_pass1Broad_dp = broad_dp;
+    m_pass1Tight_dt.fill(tight_dt);
+    m_pass1Tight_dp.fill(tight_dp);
+    m_pass1Broad_dt.fill(broad_dt);
+    m_pass1Broad_dp.fill(broad_dp);
+  }
+
+  void setRegionPass1Window(unsigned int region,
+                            int tight_dt, int tight_dp,
+                            int broad_dt, int broad_dp)
+  {
+    if (region >= kRegionCount) return;
+    m_pass1Tight_dt[region] = tight_dt;
+    m_pass1Tight_dp[region] = tight_dp;
+    m_pass1Broad_dt[region] = broad_dt;
+    m_pass1Broad_dp[region] = broad_dp;
   }
 
   void setSecondPass(bool value) { m_enableSecondPass = value; }
@@ -344,36 +377,76 @@ class Tpc_ModuleTrackReco : public SubsysReco
   // 1 = adjacent layer only, 2 = allow one missing layer, 3 = allow two.
   void setMaxLayerStep(unsigned int value)
   {
-    m_maxLayerStep = value > 0 ? value : 1;
+    m_maxLayerStep.fill(value > 0 ? value : 1);
+  }
+
+  void setRegionMaxLayerStep(unsigned int region, unsigned int value)
+  {
+    if (region >= kRegionCount) return;
+    m_maxLayerStep[region] = value > 0 ? value : 1;
   }
 
   void setMaxMissingLayers(unsigned int value)
   {
-    m_maxLayerStep = value + 1;
+    m_maxLayerStep.fill(value + 1);
+  }
+
+  void setRegionMaxMissingLayers(unsigned int region, unsigned int value)
+  {
+    if (region >= kRegionCount) return;
+    m_maxLayerStep[region] = value + 1;
   }
 
   void setPass2BroadWindow(int dt, int dp)
   {
-    m_pass2Broad_dt = dt;
-    m_pass2Broad_dp = dp;
+    m_pass2Broad_dt.fill(dt);
+    m_pass2Broad_dp.fill(dp);
+  }
+
+  void setRegionPass2BroadWindow(unsigned int region, int dt, int dp)
+  {
+    if (region >= kRegionCount) return;
+    m_pass2Broad_dt[region] = dt;
+    m_pass2Broad_dp[region] = dp;
   }
 
   void setPass2StraightWindow(int dt, int dp)
   {
-    m_pass2Straight_dt = dt;
-    m_pass2Straight_dp = dp;
+    m_pass2Straight_dt.fill(dt);
+    m_pass2Straight_dp.fill(dp);
+  }
+
+  void setRegionPass2StraightWindow(unsigned int region, int dt, int dp)
+  {
+    if (region >= kRegionCount) return;
+    m_pass2Straight_dt[region] = dt;
+    m_pass2Straight_dp[region] = dp;
   }
 
   void setPass2LocalWindow(int dt, int dp)
   {
-    m_pass2Local_dt = dt;
-    m_pass2Local_dp = dp;
+    m_pass2Local_dt.fill(dt);
+    m_pass2Local_dp.fill(dp);
+  }
+
+  void setRegionPass2LocalWindow(unsigned int region, int dt, int dp)
+  {
+    if (region >= kRegionCount) return;
+    m_pass2Local_dt[region] = dt;
+    m_pass2Local_dp[region] = dp;
   }
 
   void setPass2CombinedWindow(int dt, int dp)
   {
-    m_pass2Combined_dt = dt;
-    m_pass2Combined_dp = dp;
+    m_pass2Combined_dt.fill(dt);
+    m_pass2Combined_dp.fill(dp);
+  }
+
+  void setRegionPass2CombinedWindow(unsigned int region, int dt, int dp)
+  {
+    if (region >= kRegionCount) return;
+    m_pass2Combined_dt[region] = dt;
+    m_pass2Combined_dp[region] = dp;
   }
 
   // pass must be 1 or 2. Negative values disable a derivative cut.
@@ -383,19 +456,34 @@ class Tpc_ModuleTrackReco : public SubsysReco
                          double dtbin_second,
                          double pad_second)
   {
+    for (unsigned int region = 0; region < kRegionCount; ++region)
+    {
+      setRegionDerivativeCuts(region, pass, dtbin_first, pad_first,
+                              dtbin_second, pad_second);
+    }
+  }
+
+  void setRegionDerivativeCuts(unsigned int region,
+                               unsigned int pass,
+                               double dtbin_first,
+                               double pad_first,
+                               double dtbin_second,
+                               double pad_second)
+  {
+    if (region >= kRegionCount) return;
     if (pass == 1)
     {
-      m_pass1MaxDtbinSlopeResidual = dtbin_first;
-      m_pass1MaxDpadSlopeResidual = pad_first;
-      m_pass1MaxDtbinSecondResidual = dtbin_second;
-      m_pass1MaxDpadSecondResidual = pad_second;
+      m_pass1MaxDtbinSlopeResidual[region] = dtbin_first;
+      m_pass1MaxDpadSlopeResidual[region] = pad_first;
+      m_pass1MaxDtbinSecondResidual[region] = dtbin_second;
+      m_pass1MaxDpadSecondResidual[region] = pad_second;
     }
     else if (pass == 2)
     {
-      m_pass2MaxDtbinSlopeResidual = dtbin_first;
-      m_pass2MaxDpadSlopeResidual = pad_first;
-      m_pass2MaxDtbinSecondResidual = dtbin_second;
-      m_pass2MaxDpadSecondResidual = pad_second;
+      m_pass2MaxDtbinSlopeResidual[region] = dtbin_first;
+      m_pass2MaxDpadSlopeResidual[region] = pad_first;
+      m_pass2MaxDtbinSecondResidual[region] = dtbin_second;
+      m_pass2MaxDpadSecondResidual[region] = pad_second;
     }
   }
 
@@ -411,12 +499,28 @@ class Tpc_ModuleTrackReco : public SubsysReco
                                  double dtbin_second,
                                  double pad_second)
   {
-    m_score_dt_scale = dt;
-    m_score_dp_scale = dp;
-    m_score_dtbin_slope_scale = dtbin_first;
-    m_score_dpad_slope_scale = pad_first;
-    m_score_dtbin_second_scale = dtbin_second;
-    m_score_dpad_second_scale = pad_second;
+    for (unsigned int region = 0; region < kRegionCount; ++region)
+    {
+      setRegionAssociationScoreScales(region, dt, dp, dtbin_first, pad_first,
+                                      dtbin_second, pad_second);
+    }
+  }
+
+  void setRegionAssociationScoreScales(unsigned int region,
+                                       double dt,
+                                       double dp,
+                                       double dtbin_first,
+                                       double pad_first,
+                                       double dtbin_second,
+                                       double pad_second)
+  {
+    if (region >= kRegionCount) return;
+    m_score_dt_scale[region] = dt;
+    m_score_dp_scale[region] = dp;
+    m_score_dtbin_slope_scale[region] = dtbin_first;
+    m_score_dpad_slope_scale[region] = pad_first;
+    m_score_dtbin_second_scale[region] = dtbin_second;
+    m_score_dpad_second_scale[region] = pad_second;
   }
 
   void setQuestionableOwnership(double transfer_cost_ratio,
@@ -434,16 +538,44 @@ class Tpc_ModuleTrackReco : public SubsysReco
   void setThirdPassWindow(int tight_dt, int tight_dp,
                           int broad_dt, int broad_dp)
   {
-    m_thirdTight_dt = tight_dt;
-    m_thirdTight_dp = tight_dp;
-    m_thirdBroad_dt = broad_dt;
-    m_thirdBroad_dp = broad_dp;
+    m_thirdTight_dt.fill(tight_dt);
+    m_thirdTight_dp.fill(tight_dp);
+    m_thirdBroad_dt.fill(broad_dt);
+    m_thirdBroad_dp.fill(broad_dp);
   }
 
-  void setThirdPassLayerSpan(unsigned int n) { m_thirdLayerSpan = n; }
-  void setThirdPassMaxSteps(unsigned int n) { m_thirdMaxSteps = n; }
-  void setThirdPassMinBlobs(unsigned int n) { m_thirdMinBlobs = n; }
-  void setThirdPassMinCurvature(double v) { m_thirdMinCurvatureMetric = v; }
+  void setRegionThirdPassWindow(unsigned int region,
+                                int tight_dt, int tight_dp,
+                                int broad_dt, int broad_dp)
+  {
+    if (region >= kRegionCount) return;
+    m_thirdTight_dt[region] = tight_dt;
+    m_thirdTight_dp[region] = tight_dp;
+    m_thirdBroad_dt[region] = broad_dt;
+    m_thirdBroad_dp[region] = broad_dp;
+  }
+
+  void setThirdPassLayerSpan(unsigned int n) { m_thirdLayerSpan.fill(n); }
+  void setThirdPassMaxSteps(unsigned int n) { m_thirdMaxSteps.fill(n); }
+  void setThirdPassMinBlobs(unsigned int n) { m_thirdMinBlobs.fill(n); }
+  void setThirdPassMinCurvature(double v) { m_thirdMinCurvatureMetric.fill(v); }
+
+  void setRegionThirdPassLayerSpan(unsigned int region, unsigned int n)
+  {
+    if (region < kRegionCount) m_thirdLayerSpan[region] = n;
+  }
+  void setRegionThirdPassMaxSteps(unsigned int region, unsigned int n)
+  {
+    if (region < kRegionCount) m_thirdMaxSteps[region] = n;
+  }
+  void setRegionThirdPassMinBlobs(unsigned int region, unsigned int n)
+  {
+    if (region < kRegionCount) m_thirdMinBlobs[region] = n;
+  }
+  void setRegionThirdPassMinCurvature(unsigned int region, double v)
+  {
+    if (region < kRegionCount) m_thirdMinCurvatureMetric[region] = v;
+  }
 
   void setDoPatternQA(bool value) { m_doPatternQA = value; }
   void setPatternQAFileName(const std::string& value) { m_patternQAFileName = value; }
@@ -453,28 +585,67 @@ class Tpc_ModuleTrackReco : public SubsysReco
                          int keep_first_timebins = 3,
                          int adc_tolerance = 5)
   {
-    m_noiseMaxConsecutiveTimebins = max_consecutive_timebins;
-    m_noiseKeepFirstTimebins = keep_first_timebins;
-    m_noiseAdcTolerance = adc_tolerance;
+    m_noiseMaxConsecutiveTimebins.fill(max_consecutive_timebins);
+    m_noiseKeepFirstTimebins.fill(keep_first_timebins);
+    m_noiseAdcTolerance.fill(adc_tolerance);
   }
 
-  void setMinTrackBlobs(unsigned int n) { m_minTrackBlobs = n; }
-  void setMinTrackletBlobsForConnection(unsigned int n) { m_minTrackletBlobsForConnection = n; }
+  void setRegionNoiseRejection(unsigned int region,
+                               int max_consecutive_timebins = 10,
+                               int keep_first_timebins = 3,
+                               int adc_tolerance = 5)
+  {
+    if (region >= kRegionCount) return;
+    m_noiseMaxConsecutiveTimebins[region] = max_consecutive_timebins;
+    m_noiseKeepFirstTimebins[region] = keep_first_timebins;
+    m_noiseAdcTolerance[region] = adc_tolerance;
+  }
 
-  void setConnectMaxLayerGap(unsigned int n) { m_connectMaxLayerGap = n; }
+  void setMinTrackBlobs(unsigned int n) { m_minTrackBlobs.fill(n); }
+  void setMinTrackletBlobsForConnection(unsigned int n) { m_minTrackletBlobsForConnection.fill(n); }
+
+  void setRegionMinTrackBlobs(unsigned int region, unsigned int n)
+  {
+    if (region < kRegionCount) m_minTrackBlobs[region] = n;
+  }
+  void setRegionMinTrackletBlobsForConnection(unsigned int region, unsigned int n)
+  {
+    if (region < kRegionCount) m_minTrackletBlobsForConnection[region] = n;
+  }
+
+  void setConnectMaxLayerGap(unsigned int n) { m_connectMaxLayerGap.fill(n); }
+  void setRegionConnectMaxLayerGap(unsigned int region, unsigned int n)
+  {
+    if (region < kRegionCount) m_connectMaxLayerGap[region] = n;
+  }
 
   void setConnectWindow(double dt, double dp)
   {
-    m_connect_dt = dt;
-    m_connect_dp = dp;
+    m_connect_dt.fill(dt);
+    m_connect_dp.fill(dp);
+  }
+
+  void setRegionConnectWindow(unsigned int region, double dt, double dp)
+  {
+    if (region >= kRegionCount) return;
+    m_connect_dt[region] = dt;
+    m_connect_dp[region] = dp;
   }
 
   void setConnectSlopeWindow(double dtbin_slope, double dpad_slope)
   {
-    m_connect_dtbin_slope = dtbin_slope;
-    m_connect_dpad_slope = dpad_slope;
+    m_connect_dtbin_slope.fill(dtbin_slope);
+    m_connect_dpad_slope.fill(dpad_slope);
   }
 
+  void setRegionConnectSlopeWindow(unsigned int region,
+                                   double dtbin_slope,
+                                   double dpad_slope)
+  {
+    if (region >= kRegionCount) return;
+    m_connect_dtbin_slope[region] = dtbin_slope;
+    m_connect_dpad_slope[region] = dpad_slope;
+  }
  private:
   int getNodes(PHCompositeNode*);
   void reset_tree_vars();
@@ -500,100 +671,99 @@ class Tpc_ModuleTrackReco : public SubsysReco
   // General configuration
   double m_pedestal;
 
-  // Noise rejection
-  int m_noiseMaxConsecutiveTimebins;
-  int m_noiseKeepFirstTimebins;
-  int m_noiseAdcTolerance;
+  // Region-dependent tuning. Index 0/1/2 corresponds to R1/R2/R3.
+  std::array<int, kRegionCount> m_noiseMaxConsecutiveTimebins;
+  std::array<int, kRegionCount> m_noiseKeepFirstTimebins;
+  std::array<int, kRegionCount> m_noiseAdcTolerance;
 
-  // Blob building
-  int m_blob_dt;
-  int m_blob_dp;
+  std::array<int, kRegionCount> m_blob_dt;
+  std::array<int, kRegionCount> m_blob_dp;
 
-  // Pattern-recognition configuration. Defaults preserve old behavior.
+  // Pattern-recognition switches remain common across regions. Numerical cuts
+  // and windows below are independent for R1/R2/R3.
   bool m_enableSecondPass;
   bool m_enableThirdPass;
   bool m_enableQuestionableReassignment;
   bool m_seedFromInnerLayers;
   bool m_doPatternQA;
 
-  unsigned int m_maxLayerStep;
+  std::array<unsigned int, kRegionCount> m_maxLayerStep;
 
-  int m_pass1Tight_dt;
-  int m_pass1Tight_dp;
-  int m_pass1Broad_dt;
-  int m_pass1Broad_dp;
+  std::array<int, kRegionCount> m_pass1Tight_dt;
+  std::array<int, kRegionCount> m_pass1Tight_dp;
+  std::array<int, kRegionCount> m_pass1Broad_dt;
+  std::array<int, kRegionCount> m_pass1Broad_dp;
 
-  int m_pass2Broad_dt;
-  int m_pass2Broad_dp;
-  int m_pass2Straight_dt;
-  int m_pass2Straight_dp;
-  int m_pass2Local_dt;
-  int m_pass2Local_dp;
-  int m_pass2Combined_dt;
-  int m_pass2Combined_dp;
+  std::array<int, kRegionCount> m_pass2Broad_dt;
+  std::array<int, kRegionCount> m_pass2Broad_dp;
+  std::array<int, kRegionCount> m_pass2Straight_dt;
+  std::array<int, kRegionCount> m_pass2Straight_dp;
+  std::array<int, kRegionCount> m_pass2Local_dt;
+  std::array<int, kRegionCount> m_pass2Local_dp;
+  std::array<int, kRegionCount> m_pass2Combined_dt;
+  std::array<int, kRegionCount> m_pass2Combined_dp;
 
-  double m_pass1MaxDpadSlopeResidual;
-  double m_pass1MaxDtbinSlopeResidual;
-  double m_pass1MaxDpadSecondResidual;
-  double m_pass1MaxDtbinSecondResidual;
+  std::array<double, kRegionCount> m_pass1MaxDpadSlopeResidual;
+  std::array<double, kRegionCount> m_pass1MaxDtbinSlopeResidual;
+  std::array<double, kRegionCount> m_pass1MaxDpadSecondResidual;
+  std::array<double, kRegionCount> m_pass1MaxDtbinSecondResidual;
 
-  double m_pass2MaxDpadSlopeResidual;
-  double m_pass2MaxDtbinSlopeResidual;
-  double m_pass2MaxDpadSecondResidual;
-  double m_pass2MaxDtbinSecondResidual;
+  std::array<double, kRegionCount> m_pass2MaxDpadSlopeResidual;
+  std::array<double, kRegionCount> m_pass2MaxDtbinSlopeResidual;
+  std::array<double, kRegionCount> m_pass2MaxDpadSecondResidual;
+  std::array<double, kRegionCount> m_pass2MaxDtbinSecondResidual;
 
   unsigned int m_derivativeHistory;
 
-  double m_score_dp_scale;
-  double m_score_dt_scale;
-  double m_score_dpad_slope_scale;
-  double m_score_dtbin_slope_scale;
-  double m_score_dpad_second_scale;
-  double m_score_dtbin_second_scale;
+  std::array<double, kRegionCount> m_score_dp_scale;
+  std::array<double, kRegionCount> m_score_dt_scale;
+  std::array<double, kRegionCount> m_score_dpad_slope_scale;
+  std::array<double, kRegionCount> m_score_dtbin_slope_scale;
+  std::array<double, kRegionCount> m_score_dpad_second_scale;
+  std::array<double, kRegionCount> m_score_dtbin_second_scale;
 
   double m_transferCostRatio;
   double m_shareCostRatio;
   unsigned int m_questionableRepairIterations;
 
-  int m_thirdTight_dt;
-  int m_thirdTight_dp;
-  int m_thirdBroad_dt;
-  int m_thirdBroad_dp;
-  unsigned int m_thirdLayerSpan;
-  unsigned int m_thirdMaxSteps;
-  unsigned int m_thirdMinBlobs;
-  double m_thirdMinCurvatureMetric;
+  std::array<int, kRegionCount> m_thirdTight_dt;
+  std::array<int, kRegionCount> m_thirdTight_dp;
+  std::array<int, kRegionCount> m_thirdBroad_dt;
+  std::array<int, kRegionCount> m_thirdBroad_dp;
+  std::array<unsigned int, kRegionCount> m_thirdLayerSpan;
+  std::array<unsigned int, kRegionCount> m_thirdMaxSteps;
+  std::array<unsigned int, kRegionCount> m_thirdMinBlobs;
+  std::array<double, kRegionCount> m_thirdMinCurvatureMetric;
 
-  unsigned int m_minTrackBlobs;
-  unsigned int m_minTrackletBlobsForConnection;
+  std::array<unsigned int, kRegionCount> m_minTrackBlobs;
+  std::array<unsigned int, kRegionCount> m_minTrackletBlobsForConnection;
 
   // Track-piece connection parameters
-  unsigned int m_connectMaxLayerGap;
+  std::array<unsigned int, kRegionCount> m_connectMaxLayerGap;
+  std::array<double, kRegionCount> m_connect_dp;
+  std::array<double, kRegionCount> m_connect_dt;
+  std::array<double, kRegionCount> m_connect_dpad_slope;
+  std::array<double, kRegionCount> m_connect_dtbin_slope;
 
-  double m_connect_dp;
-  double m_connect_dt;
-
-  double m_connect_dpad_slope;
-  double m_connect_dtbin_slope;
-
-  // Pattern QA. These are filled only after module worker threads join.
-  TH1D* m_h_pr_straight_dp;
-  TH1D* m_h_pr_straight_dt;
-  TH1D* m_h_pr_local_dp;
-  TH1D* m_h_pr_local_dt;
-  TH1D* m_h_pr_first_pad_residual;
-  TH1D* m_h_pr_first_tbin_residual;
-  TH1D* m_h_pr_second_pad_residual;
-  TH1D* m_h_pr_second_tbin_residual;
-  TH1D* m_h_pr_candidate_count;
-  TH1D* m_h_pr_layer_step;
-  TH1D* m_h_pr_cost;
-  TH1D* m_h_pr_cost_separation;
-  TH1D* m_h_pr_association_state;
-  TH1D* m_h_pr_stop_reason;
-  TH1D* m_h_pr_curvature_metric;
-  TH2D* m_h_pr_straight_vs_local_pad;
-  TH2D* m_h_pr_straight_vs_local_tbin;
+  // Pattern QA is stored independently for R1/R2/R3 so the numerical cuts
+  // can be tuned from detector-region-specific residual distributions.
+  std::array<TH1D*, kRegionCount> m_h_pr_straight_dp{};
+  std::array<TH1D*, kRegionCount> m_h_pr_straight_dt{};
+  std::array<TH1D*, kRegionCount> m_h_pr_local_dp{};
+  std::array<TH1D*, kRegionCount> m_h_pr_local_dt{};
+  std::array<TH1D*, kRegionCount> m_h_pr_first_pad_residual{};
+  std::array<TH1D*, kRegionCount> m_h_pr_first_tbin_residual{};
+  std::array<TH1D*, kRegionCount> m_h_pr_second_pad_residual{};
+  std::array<TH1D*, kRegionCount> m_h_pr_second_tbin_residual{};
+  std::array<TH1D*, kRegionCount> m_h_pr_candidate_count{};
+  std::array<TH1D*, kRegionCount> m_h_pr_layer_step{};
+  std::array<TH1D*, kRegionCount> m_h_pr_cost{};
+  std::array<TH1D*, kRegionCount> m_h_pr_cost_separation{};
+  std::array<TH1D*, kRegionCount> m_h_pr_association_state{};
+  std::array<TH1D*, kRegionCount> m_h_pr_stop_reason{};
+  std::array<TH1D*, kRegionCount> m_h_pr_curvature_metric{};
+  std::array<TH2D*, kRegionCount> m_h_pr_straight_vs_local_pad{};
+  std::array<TH2D*, kRegionCount> m_h_pr_straight_vs_local_tbin{};
 
   // Event number saved once per tree entry
   int m_tree_event;
