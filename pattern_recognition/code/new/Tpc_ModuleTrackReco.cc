@@ -2387,79 +2387,62 @@ Tpc_ModuleTrackReco::Tpc_ModuleTrackReco(const std::string& name,
   , m_event(0)
   , m_maxThreads(72)
   , m_pedestal(0.0)
-  , m_noiseMaxConsecutiveTimebins(10)
-  , m_noiseKeepFirstTimebins(3)
-  , m_noiseAdcTolerance(5)
-  , m_blob_dt(2)
-  , m_blob_dp(2)
+  , m_noiseMaxConsecutiveTimebins{{10, 10, 10}}
+  , m_noiseKeepFirstTimebins{{3, 3, 3}}
+  , m_noiseAdcTolerance{{5, 5, 5}}
+  , m_blob_dt{{2, 2, 2}}
+  , m_blob_dp{{2, 2, 2}}
   , m_enableSecondPass(false)
   , m_enableThirdPass(false)
   , m_enableQuestionableReassignment(false)
   , m_seedFromInnerLayers(false)
   , m_doPatternQA(false)
-  , m_maxLayerStep(1)
-  , m_pass1Tight_dt(6)
-  , m_pass1Tight_dp(6)
-  , m_pass1Broad_dt(6)
-  , m_pass1Broad_dp(6)
-  , m_pass2Broad_dt(12)
-  , m_pass2Broad_dp(12)
-  , m_pass2Straight_dt(6)
-  , m_pass2Straight_dp(6)
-  , m_pass2Local_dt(6)
-  , m_pass2Local_dp(6)
-  , m_pass2Combined_dt(8)
-  , m_pass2Combined_dp(8)
-  , m_pass1MaxDpadSlopeResidual(-1.0)
-  , m_pass1MaxDtbinSlopeResidual(-1.0)
-  , m_pass1MaxDpadSecondResidual(-1.0)
-  , m_pass1MaxDtbinSecondResidual(-1.0)
-  , m_pass2MaxDpadSlopeResidual(-1.0)
-  , m_pass2MaxDtbinSlopeResidual(-1.0)
-  , m_pass2MaxDpadSecondResidual(-1.0)
-  , m_pass2MaxDtbinSecondResidual(-1.0)
+  , m_maxLayerStep{{1, 1, 1}}
+  , m_pass1Tight_dt{{6, 6, 6}}
+  , m_pass1Tight_dp{{6, 6, 6}}
+  , m_pass1Broad_dt{{6, 6, 6}}
+  , m_pass1Broad_dp{{6, 6, 6}}
+  , m_pass2Broad_dt{{12, 12, 12}}
+  , m_pass2Broad_dp{{12, 12, 12}}
+  , m_pass2Straight_dt{{6, 6, 6}}
+  , m_pass2Straight_dp{{6, 6, 6}}
+  , m_pass2Local_dt{{6, 6, 6}}
+  , m_pass2Local_dp{{6, 6, 6}}
+  , m_pass2Combined_dt{{8, 8, 8}}
+  , m_pass2Combined_dp{{8, 8, 8}}
+  , m_pass1MaxDpadSlopeResidual{{-1.0, -1.0, -1.0}}
+  , m_pass1MaxDtbinSlopeResidual{{-1.0, -1.0, -1.0}}
+  , m_pass1MaxDpadSecondResidual{{-1.0, -1.0, -1.0}}
+  , m_pass1MaxDtbinSecondResidual{{-1.0, -1.0, -1.0}}
+  , m_pass2MaxDpadSlopeResidual{{-1.0, -1.0, -1.0}}
+  , m_pass2MaxDtbinSlopeResidual{{-1.0, -1.0, -1.0}}
+  , m_pass2MaxDpadSecondResidual{{-1.0, -1.0, -1.0}}
+  , m_pass2MaxDtbinSecondResidual{{-1.0, -1.0, -1.0}}
   , m_derivativeHistory(3)
-  , m_score_dp_scale(6.0)
-  , m_score_dt_scale(6.0)
-  , m_score_dpad_slope_scale(2.0)
-  , m_score_dtbin_slope_scale(2.0)
-  , m_score_dpad_second_scale(2.0)
-  , m_score_dtbin_second_scale(2.0)
+  , m_score_dp_scale{{6.0, 6.0, 6.0}}
+  , m_score_dt_scale{{6.0, 6.0, 6.0}}
+  , m_score_dpad_slope_scale{{2.0, 2.0, 2.0}}
+  , m_score_dtbin_slope_scale{{2.0, 2.0, 2.0}}
+  , m_score_dpad_second_scale{{2.0, 2.0, 2.0}}
+  , m_score_dtbin_second_scale{{2.0, 2.0, 2.0}}
   , m_transferCostRatio(0.7)
   , m_shareCostRatio(1.25)
   , m_questionableRepairIterations(2)
-  , m_thirdTight_dt(6)
-  , m_thirdTight_dp(6)
-  , m_thirdBroad_dt(10)
-  , m_thirdBroad_dp(10)
-  , m_thirdLayerSpan(1)
-  , m_thirdMaxSteps(16)
-  , m_thirdMinBlobs(3)
-  , m_thirdMinCurvatureMetric(0.0)
-  , m_minTrackBlobs(4)
-  , m_minTrackletBlobsForConnection(4)
-  , m_connectMaxLayerGap(8)
-  , m_connect_dp(8.0)
-  , m_connect_dt(8.0)
-  , m_connect_dpad_slope(2.0)
-  , m_connect_dtbin_slope(2.0)
-  , m_h_pr_straight_dp(nullptr)
-  , m_h_pr_straight_dt(nullptr)
-  , m_h_pr_local_dp(nullptr)
-  , m_h_pr_local_dt(nullptr)
-  , m_h_pr_first_pad_residual(nullptr)
-  , m_h_pr_first_tbin_residual(nullptr)
-  , m_h_pr_second_pad_residual(nullptr)
-  , m_h_pr_second_tbin_residual(nullptr)
-  , m_h_pr_candidate_count(nullptr)
-  , m_h_pr_layer_step(nullptr)
-  , m_h_pr_cost(nullptr)
-  , m_h_pr_cost_separation(nullptr)
-  , m_h_pr_association_state(nullptr)
-  , m_h_pr_stop_reason(nullptr)
-  , m_h_pr_curvature_metric(nullptr)
-  , m_h_pr_straight_vs_local_pad(nullptr)
-  , m_h_pr_straight_vs_local_tbin(nullptr)
+  , m_thirdTight_dt{{6, 6, 6}}
+  , m_thirdTight_dp{{6, 6, 6}}
+  , m_thirdBroad_dt{{10, 10, 10}}
+  , m_thirdBroad_dp{{10, 10, 10}}
+  , m_thirdLayerSpan{{1, 1, 1}}
+  , m_thirdMaxSteps{{16, 16, 16}}
+  , m_thirdMinBlobs{{3, 3, 3}}
+  , m_thirdMinCurvatureMetric{{0.0, 0.0, 0.0}}
+  , m_minTrackBlobs{{4, 4, 4}}
+  , m_minTrackletBlobsForConnection{{4, 4, 4}}
+  , m_connectMaxLayerGap{{8, 8, 8}}
+  , m_connect_dp{{8.0, 8.0, 8.0}}
+  , m_connect_dt{{8.0, 8.0, 8.0}}
+  , m_connect_dpad_slope{{2.0, 2.0, 2.0}}
+  , m_connect_dtbin_slope{{2.0, 2.0, 2.0}}
   , m_tree_event(0)
 {
 }
@@ -2492,61 +2475,69 @@ void Tpc_ModuleTrackReco::create_pattern_qa_histograms()
     return;
   }
   m_patternQAFile->cd();
-  m_h_pr_straight_dp = new TH1D("h_pr_straight_dp", "straight-fit pad residual;#Delta pad;candidate tests", 240, -24.0, 24.0);
-  m_h_pr_straight_dt = new TH1D("h_pr_straight_dt", "straight-fit tbin residual;#Delta tbin;candidate tests", 240, -24.0, 24.0);
-  m_h_pr_local_dp = new TH1D("h_pr_local_dp", "local-curvature pad residual;#Delta pad;candidate tests", 240, -24.0, 24.0);
-  m_h_pr_local_dt = new TH1D("h_pr_local_dt", "local-curvature tbin residual;#Delta tbin;candidate tests", 240, -24.0, 24.0);
-  m_h_pr_first_pad_residual = new TH1D("h_pr_first_pad_residual", "first-derivative pad residual;#Delta(dpad/dlayer);candidate tests", 240, -20.0, 20.0);
-  m_h_pr_first_tbin_residual = new TH1D("h_pr_first_tbin_residual", "first-derivative tbin residual;#Delta(dtbin/dlayer);candidate tests", 240, -20.0, 20.0);
-  m_h_pr_second_pad_residual = new TH1D("h_pr_second_pad_residual", "second-derivative pad residual;#Delta(d^{2}pad/dlayer^{2});candidate tests", 240, -20.0, 20.0);
-  m_h_pr_second_tbin_residual = new TH1D("h_pr_second_tbin_residual", "second-derivative tbin residual;#Delta(d^{2}tbin/dlayer^{2});candidate tests", 240, -20.0, 20.0);
-  m_h_pr_candidate_count = new TH1D("h_pr_candidate_count", "broad candidates on tested layer;N candidates;layer tests", 16, -0.5, 15.5);
-  m_h_pr_layer_step = new TH1D("h_pr_layer_step", "tested layer step;|#Delta layer|;candidate tests", 8, 0.5, 8.5);
-  m_h_pr_cost = new TH1D("h_pr_cost", "association cost;cost;candidate tests", 240, 0.0, 60.0);
-  m_h_pr_cost_separation = new TH1D("h_pr_cost_separation", "runner-up minus best cost;second-best - best;selected candidates", 240, 0.0, 60.0);
-  m_h_pr_association_state = new TH1D("h_pr_association_state", "selected association state;state;selected candidates", 5, -0.5, 4.5);
-  m_h_pr_stop_reason = new TH1D("h_pr_stop_reason", "track growth stop reason;reason;stops", 8, -0.5, 7.5);
-  m_h_pr_curvature_metric = new TH1D("h_pr_curvature_metric", "stopped-track curvature metric;|<d^{2}pad/dlayer^{2}>|+|<d^{2}tbin/dlayer^{2}>|;tracks", 240, 0.0, 24.0);
-  m_h_pr_straight_vs_local_pad = new TH2D("h_pr_straight_vs_local_pad", "straight vs local pad residual;straight #Delta pad;local #Delta pad", 160, -16.0, 16.0, 160, -16.0, 16.0);
-  m_h_pr_straight_vs_local_tbin = new TH2D("h_pr_straight_vs_local_tbin", "straight vs local tbin residual;straight #Delta tbin;local #Delta tbin", 160, -16.0, 16.0, 160, -16.0, 16.0);
+
+  for (unsigned int region = 0; region < kRegionCount; ++region)
+  {
+    const std::string rtag = "r" + std::to_string(region + 1);
+    const std::string title = "R" + std::to_string(region + 1) + " ";
+
+    m_h_pr_straight_dp[region] = new TH1D(("h_pr_straight_dp_" + rtag).c_str(), (title + "straight-fit pad residual;#Delta pad;candidate tests").c_str(), 240, -24.0, 24.0);
+    m_h_pr_straight_dt[region] = new TH1D(("h_pr_straight_dt_" + rtag).c_str(), (title + "straight-fit tbin residual;#Delta tbin;candidate tests").c_str(), 240, -24.0, 24.0);
+    m_h_pr_local_dp[region] = new TH1D(("h_pr_local_dp_" + rtag).c_str(), (title + "local-curvature pad residual;#Delta pad;candidate tests").c_str(), 240, -24.0, 24.0);
+    m_h_pr_local_dt[region] = new TH1D(("h_pr_local_dt_" + rtag).c_str(), (title + "local-curvature tbin residual;#Delta tbin;candidate tests").c_str(), 240, -24.0, 24.0);
+    m_h_pr_first_pad_residual[region] = new TH1D(("h_pr_first_pad_residual_" + rtag).c_str(), (title + "first-derivative pad residual;#Delta(dpad/dlayer);candidate tests").c_str(), 240, -20.0, 20.0);
+    m_h_pr_first_tbin_residual[region] = new TH1D(("h_pr_first_tbin_residual_" + rtag).c_str(), (title + "first-derivative tbin residual;#Delta(dtbin/dlayer);candidate tests").c_str(), 240, -20.0, 20.0);
+    m_h_pr_second_pad_residual[region] = new TH1D(("h_pr_second_pad_residual_" + rtag).c_str(), (title + "second-derivative pad residual;#Delta(d^{2}pad/dlayer^{2});candidate tests").c_str(), 240, -20.0, 20.0);
+    m_h_pr_second_tbin_residual[region] = new TH1D(("h_pr_second_tbin_residual_" + rtag).c_str(), (title + "second-derivative tbin residual;#Delta(d^{2}tbin/dlayer^{2});candidate tests").c_str(), 240, -20.0, 20.0);
+    m_h_pr_candidate_count[region] = new TH1D(("h_pr_candidate_count_" + rtag).c_str(), (title + "broad candidates on tested layer;N candidates;layer tests").c_str(), 16, -0.5, 15.5);
+    m_h_pr_layer_step[region] = new TH1D(("h_pr_layer_step_" + rtag).c_str(), (title + "tested layer step;|#Delta layer|;candidate tests").c_str(), 8, 0.5, 8.5);
+    m_h_pr_cost[region] = new TH1D(("h_pr_cost_" + rtag).c_str(), (title + "association cost;cost;candidate tests").c_str(), 240, 0.0, 60.0);
+    m_h_pr_cost_separation[region] = new TH1D(("h_pr_cost_separation_" + rtag).c_str(), (title + "runner-up minus best cost;second-best - best;selected candidates").c_str(), 240, 0.0, 60.0);
+    m_h_pr_association_state[region] = new TH1D(("h_pr_association_state_" + rtag).c_str(), (title + "selected association state;state;selected candidates").c_str(), 5, -0.5, 4.5);
+    m_h_pr_stop_reason[region] = new TH1D(("h_pr_stop_reason_" + rtag).c_str(), (title + "track growth stop reason;reason;stops").c_str(), 8, -0.5, 7.5);
+    m_h_pr_curvature_metric[region] = new TH1D(("h_pr_curvature_metric_" + rtag).c_str(), (title + "stopped-track curvature metric;|<d^{2}pad/dlayer^{2}>|+|<d^{2}tbin/dlayer^{2}>|;tracks").c_str(), 240, 0.0, 24.0);
+    m_h_pr_straight_vs_local_pad[region] = new TH2D(("h_pr_straight_vs_local_pad_" + rtag).c_str(), (title + "straight vs local pad residual;straight #Delta pad;local #Delta pad").c_str(), 160, -16.0, 16.0, 160, -16.0, 16.0);
+    m_h_pr_straight_vs_local_tbin[region] = new TH2D(("h_pr_straight_vs_local_tbin_" + rtag).c_str(), (title + "straight vs local tbin residual;straight #Delta tbin;local #Delta tbin").c_str(), 160, -16.0, 16.0, 160, -16.0, 16.0);
+  }
 }
 
 void Tpc_ModuleTrackReco::fill_pattern_qa(const InModuleThreadData& td)
 {
-  if (!m_doPatternQA)
+  if (!m_doPatternQA || td.region >= kRegionCount)
   {
     return;
   }
 
+  const unsigned int region = td.region;
   for (const auto& q : td.pattern_qa)
   {
-    if (m_h_pr_straight_dp) m_h_pr_straight_dp->Fill(q.straight_dp);
-    if (m_h_pr_straight_dt) m_h_pr_straight_dt->Fill(q.straight_dt);
-    if (q.local_valid && m_h_pr_local_dp) m_h_pr_local_dp->Fill(q.local_dp);
-    if (q.local_valid && m_h_pr_local_dt) m_h_pr_local_dt->Fill(q.local_dt);
-    if (q.first_valid && m_h_pr_first_pad_residual) m_h_pr_first_pad_residual->Fill(q.first_pad_residual);
-    if (q.first_valid && m_h_pr_first_tbin_residual) m_h_pr_first_tbin_residual->Fill(q.first_tbin_residual);
-    if (q.second_valid && m_h_pr_second_pad_residual) m_h_pr_second_pad_residual->Fill(q.second_pad_residual);
-    if (q.second_valid && m_h_pr_second_tbin_residual) m_h_pr_second_tbin_residual->Fill(q.second_tbin_residual);
-    if (m_h_pr_candidate_count) m_h_pr_candidate_count->Fill(q.candidate_count);
-    if (m_h_pr_layer_step) m_h_pr_layer_step->Fill(q.layer_step);
-    if (m_h_pr_cost && std::isfinite(q.cost)) m_h_pr_cost->Fill(q.cost);
-    if (q.selected && m_h_pr_cost_separation && std::isfinite(q.second_cost) && std::isfinite(q.cost))
+    if (m_h_pr_straight_dp[region]) m_h_pr_straight_dp[region]->Fill(q.straight_dp);
+    if (m_h_pr_straight_dt[region]) m_h_pr_straight_dt[region]->Fill(q.straight_dt);
+    if (q.local_valid && m_h_pr_local_dp[region]) m_h_pr_local_dp[region]->Fill(q.local_dp);
+    if (q.local_valid && m_h_pr_local_dt[region]) m_h_pr_local_dt[region]->Fill(q.local_dt);
+    if (q.first_valid && m_h_pr_first_pad_residual[region]) m_h_pr_first_pad_residual[region]->Fill(q.first_pad_residual);
+    if (q.first_valid && m_h_pr_first_tbin_residual[region]) m_h_pr_first_tbin_residual[region]->Fill(q.first_tbin_residual);
+    if (q.second_valid && m_h_pr_second_pad_residual[region]) m_h_pr_second_pad_residual[region]->Fill(q.second_pad_residual);
+    if (q.second_valid && m_h_pr_second_tbin_residual[region]) m_h_pr_second_tbin_residual[region]->Fill(q.second_tbin_residual);
+    if (m_h_pr_candidate_count[region]) m_h_pr_candidate_count[region]->Fill(q.candidate_count);
+    if (m_h_pr_layer_step[region]) m_h_pr_layer_step[region]->Fill(q.layer_step);
+    if (m_h_pr_cost[region] && std::isfinite(q.cost)) m_h_pr_cost[region]->Fill(q.cost);
+    if (q.selected && m_h_pr_cost_separation[region] && std::isfinite(q.second_cost) && std::isfinite(q.cost))
     {
-      m_h_pr_cost_separation->Fill(std::max(0.0F, q.second_cost - q.cost));
+      m_h_pr_cost_separation[region]->Fill(std::max(0.0F, q.second_cost - q.cost));
     }
-    if (q.selected && m_h_pr_association_state) m_h_pr_association_state->Fill(q.association_state);
-    if (q.local_valid && m_h_pr_straight_vs_local_pad) m_h_pr_straight_vs_local_pad->Fill(q.straight_dp, q.local_dp);
-    if (q.local_valid && m_h_pr_straight_vs_local_tbin) m_h_pr_straight_vs_local_tbin->Fill(q.straight_dt, q.local_dt);
+    if (q.selected && m_h_pr_association_state[region]) m_h_pr_association_state[region]->Fill(q.association_state);
+    if (q.local_valid && m_h_pr_straight_vs_local_pad[region]) m_h_pr_straight_vs_local_pad[region]->Fill(q.straight_dp, q.local_dp);
+    if (q.local_valid && m_h_pr_straight_vs_local_tbin[region]) m_h_pr_straight_vs_local_tbin[region]->Fill(q.straight_dt, q.local_dt);
   }
 
   for (uint8_t reason : td.pattern_stop_reasons)
   {
-    if (m_h_pr_stop_reason) m_h_pr_stop_reason->Fill(reason);
+    if (m_h_pr_stop_reason[region]) m_h_pr_stop_reason[region]->Fill(reason);
   }
   for (float curvature : td.pattern_curvature_metrics)
   {
-    if (m_h_pr_curvature_metric) m_h_pr_curvature_metric->Fill(curvature);
+    if (m_h_pr_curvature_metric[region]) m_h_pr_curvature_metric[region]->Fill(curvature);
   }
 }
 
@@ -2557,23 +2548,27 @@ void Tpc_ModuleTrackReco::write_pattern_qa_histograms()
     return;
   }
   m_patternQAFile->cd();
-  if (m_h_pr_straight_dp) m_h_pr_straight_dp->Write();
-  if (m_h_pr_straight_dt) m_h_pr_straight_dt->Write();
-  if (m_h_pr_local_dp) m_h_pr_local_dp->Write();
-  if (m_h_pr_local_dt) m_h_pr_local_dt->Write();
-  if (m_h_pr_first_pad_residual) m_h_pr_first_pad_residual->Write();
-  if (m_h_pr_first_tbin_residual) m_h_pr_first_tbin_residual->Write();
-  if (m_h_pr_second_pad_residual) m_h_pr_second_pad_residual->Write();
-  if (m_h_pr_second_tbin_residual) m_h_pr_second_tbin_residual->Write();
-  if (m_h_pr_candidate_count) m_h_pr_candidate_count->Write();
-  if (m_h_pr_layer_step) m_h_pr_layer_step->Write();
-  if (m_h_pr_cost) m_h_pr_cost->Write();
-  if (m_h_pr_cost_separation) m_h_pr_cost_separation->Write();
-  if (m_h_pr_association_state) m_h_pr_association_state->Write();
-  if (m_h_pr_stop_reason) m_h_pr_stop_reason->Write();
-  if (m_h_pr_curvature_metric) m_h_pr_curvature_metric->Write();
-  if (m_h_pr_straight_vs_local_pad) m_h_pr_straight_vs_local_pad->Write();
-  if (m_h_pr_straight_vs_local_tbin) m_h_pr_straight_vs_local_tbin->Write();
+
+  for (unsigned int region = 0; region < kRegionCount; ++region)
+  {
+    if (m_h_pr_straight_dp[region]) m_h_pr_straight_dp[region]->Write();
+    if (m_h_pr_straight_dt[region]) m_h_pr_straight_dt[region]->Write();
+    if (m_h_pr_local_dp[region]) m_h_pr_local_dp[region]->Write();
+    if (m_h_pr_local_dt[region]) m_h_pr_local_dt[region]->Write();
+    if (m_h_pr_first_pad_residual[region]) m_h_pr_first_pad_residual[region]->Write();
+    if (m_h_pr_first_tbin_residual[region]) m_h_pr_first_tbin_residual[region]->Write();
+    if (m_h_pr_second_pad_residual[region]) m_h_pr_second_pad_residual[region]->Write();
+    if (m_h_pr_second_tbin_residual[region]) m_h_pr_second_tbin_residual[region]->Write();
+    if (m_h_pr_candidate_count[region]) m_h_pr_candidate_count[region]->Write();
+    if (m_h_pr_layer_step[region]) m_h_pr_layer_step[region]->Write();
+    if (m_h_pr_cost[region]) m_h_pr_cost[region]->Write();
+    if (m_h_pr_cost_separation[region]) m_h_pr_cost_separation[region]->Write();
+    if (m_h_pr_association_state[region]) m_h_pr_association_state[region]->Write();
+    if (m_h_pr_stop_reason[region]) m_h_pr_stop_reason[region]->Write();
+    if (m_h_pr_curvature_metric[region]) m_h_pr_curvature_metric[region]->Write();
+    if (m_h_pr_straight_vs_local_pad[region]) m_h_pr_straight_vs_local_pad[region]->Write();
+    if (m_h_pr_straight_vs_local_tbin[region]) m_h_pr_straight_vs_local_tbin[region]->Write();
+  }
 }
 
 int Tpc_ModuleTrackReco::Init(PHCompositeNode* /*unused*/)
@@ -2745,7 +2740,7 @@ int Tpc_ModuleTrackReco::process_event(PHCompositeNode* /*unused*/)
   {
     for (unsigned int sector = 0; sector < 12; ++sector)
     {
-      for (unsigned int region = 0; region < 3; ++region)
+      for (unsigned int region = 0; region < kRegionCount; ++region)
       {
         InModuleThreadData td;
         td.region = region;
@@ -2756,69 +2751,69 @@ int Tpc_ModuleTrackReco::process_event(PHCompositeNode* /*unused*/)
                                                     static_cast<uint8_t>(side));
         td.pedestal = m_pedestal;
         td.verbosity = Verbosity();
-        td.noise_max_consecutive_timebins = m_noiseMaxConsecutiveTimebins;
-        td.noise_keep_first_timebins = m_noiseKeepFirstTimebins;
-        td.noise_adc_tolerance = m_noiseAdcTolerance;
-        td.blob_dt = m_blob_dt;
-        td.blob_dp = m_blob_dp;
+        td.noise_max_consecutive_timebins = m_noiseMaxConsecutiveTimebins[region];
+        td.noise_keep_first_timebins = m_noiseKeepFirstTimebins[region];
+        td.noise_adc_tolerance = m_noiseAdcTolerance[region];
+        td.blob_dt = m_blob_dt[region];
+        td.blob_dp = m_blob_dp[region];
 
         td.enable_second_pass = m_enableSecondPass;
         td.enable_third_pass = m_enableThirdPass;
         td.enable_questionable_reassignment = m_enableQuestionableReassignment;
         td.seed_from_inner_layers = m_seedFromInnerLayers;
         td.do_pattern_qa = m_doPatternQA;
-        td.max_layer_step = m_maxLayerStep;
+        td.max_layer_step = m_maxLayerStep[region];
 
-        td.pass1_tight_dt = m_pass1Tight_dt;
-        td.pass1_tight_dp = m_pass1Tight_dp;
-        td.pass1_broad_dt = m_pass1Broad_dt;
-        td.pass1_broad_dp = m_pass1Broad_dp;
+        td.pass1_tight_dt = m_pass1Tight_dt[region];
+        td.pass1_tight_dp = m_pass1Tight_dp[region];
+        td.pass1_broad_dt = m_pass1Broad_dt[region];
+        td.pass1_broad_dp = m_pass1Broad_dp[region];
 
-        td.pass2_broad_dt = m_pass2Broad_dt;
-        td.pass2_broad_dp = m_pass2Broad_dp;
-        td.pass2_straight_dt = m_pass2Straight_dt;
-        td.pass2_straight_dp = m_pass2Straight_dp;
-        td.pass2_local_dt = m_pass2Local_dt;
-        td.pass2_local_dp = m_pass2Local_dp;
-        td.pass2_combined_dt = m_pass2Combined_dt;
-        td.pass2_combined_dp = m_pass2Combined_dp;
+        td.pass2_broad_dt = m_pass2Broad_dt[region];
+        td.pass2_broad_dp = m_pass2Broad_dp[region];
+        td.pass2_straight_dt = m_pass2Straight_dt[region];
+        td.pass2_straight_dp = m_pass2Straight_dp[region];
+        td.pass2_local_dt = m_pass2Local_dt[region];
+        td.pass2_local_dp = m_pass2Local_dp[region];
+        td.pass2_combined_dt = m_pass2Combined_dt[region];
+        td.pass2_combined_dp = m_pass2Combined_dp[region];
 
-        td.pass1_max_dpad_slope_residual = m_pass1MaxDpadSlopeResidual;
-        td.pass1_max_dtbin_slope_residual = m_pass1MaxDtbinSlopeResidual;
-        td.pass1_max_dpad_second_residual = m_pass1MaxDpadSecondResidual;
-        td.pass1_max_dtbin_second_residual = m_pass1MaxDtbinSecondResidual;
-        td.pass2_max_dpad_slope_residual = m_pass2MaxDpadSlopeResidual;
-        td.pass2_max_dtbin_slope_residual = m_pass2MaxDtbinSlopeResidual;
-        td.pass2_max_dpad_second_residual = m_pass2MaxDpadSecondResidual;
-        td.pass2_max_dtbin_second_residual = m_pass2MaxDtbinSecondResidual;
+        td.pass1_max_dpad_slope_residual = m_pass1MaxDpadSlopeResidual[region];
+        td.pass1_max_dtbin_slope_residual = m_pass1MaxDtbinSlopeResidual[region];
+        td.pass1_max_dpad_second_residual = m_pass1MaxDpadSecondResidual[region];
+        td.pass1_max_dtbin_second_residual = m_pass1MaxDtbinSecondResidual[region];
+        td.pass2_max_dpad_slope_residual = m_pass2MaxDpadSlopeResidual[region];
+        td.pass2_max_dtbin_slope_residual = m_pass2MaxDtbinSlopeResidual[region];
+        td.pass2_max_dpad_second_residual = m_pass2MaxDpadSecondResidual[region];
+        td.pass2_max_dtbin_second_residual = m_pass2MaxDtbinSecondResidual[region];
         td.derivative_history = m_derivativeHistory;
 
-        td.score_dp_scale = m_score_dp_scale;
-        td.score_dt_scale = m_score_dt_scale;
-        td.score_dpad_slope_scale = m_score_dpad_slope_scale;
-        td.score_dtbin_slope_scale = m_score_dtbin_slope_scale;
-        td.score_dpad_second_scale = m_score_dpad_second_scale;
-        td.score_dtbin_second_scale = m_score_dtbin_second_scale;
+        td.score_dp_scale = m_score_dp_scale[region];
+        td.score_dt_scale = m_score_dt_scale[region];
+        td.score_dpad_slope_scale = m_score_dpad_slope_scale[region];
+        td.score_dtbin_slope_scale = m_score_dtbin_slope_scale[region];
+        td.score_dpad_second_scale = m_score_dpad_second_scale[region];
+        td.score_dtbin_second_scale = m_score_dtbin_second_scale[region];
         td.transfer_cost_ratio = m_transferCostRatio;
         td.share_cost_ratio = m_shareCostRatio;
         td.questionable_repair_iterations = m_questionableRepairIterations;
 
-        td.third_tight_dt = m_thirdTight_dt;
-        td.third_tight_dp = m_thirdTight_dp;
-        td.third_broad_dt = m_thirdBroad_dt;
-        td.third_broad_dp = m_thirdBroad_dp;
-        td.third_layer_span = m_thirdLayerSpan;
-        td.third_max_steps = m_thirdMaxSteps;
-        td.third_min_blobs = m_thirdMinBlobs;
-        td.third_min_curvature_metric = m_thirdMinCurvatureMetric;
+        td.third_tight_dt = m_thirdTight_dt[region];
+        td.third_tight_dp = m_thirdTight_dp[region];
+        td.third_broad_dt = m_thirdBroad_dt[region];
+        td.third_broad_dp = m_thirdBroad_dp[region];
+        td.third_layer_span = m_thirdLayerSpan[region];
+        td.third_max_steps = m_thirdMaxSteps[region];
+        td.third_min_blobs = m_thirdMinBlobs[region];
+        td.third_min_curvature_metric = m_thirdMinCurvatureMetric[region];
 
-        td.min_track_blobs = m_minTrackBlobs;
-        td.min_tracklet_blobs_for_connection = m_minTrackletBlobsForConnection;
-        td.connect_max_layer_gap = m_connectMaxLayerGap;
-        td.connect_dp = m_connect_dp;
-        td.connect_dt = m_connect_dt;
-        td.connect_dpad_slope = m_connect_dpad_slope;
-        td.connect_dtbin_slope = m_connect_dtbin_slope;
+        td.min_track_blobs = m_minTrackBlobs[region];
+        td.min_tracklet_blobs_for_connection = m_minTrackletBlobsForConnection[region];
+        td.connect_max_layer_gap = m_connectMaxLayerGap[region];
+        td.connect_dp = m_connect_dp[region];
+        td.connect_dt = m_connect_dt[region];
+        td.connect_dpad_slope = m_connect_dpad_slope[region];
+        td.connect_dtbin_slope = m_connect_dtbin_slope[region];
 
         for (unsigned int l = 0; l < 16; ++l)
         {

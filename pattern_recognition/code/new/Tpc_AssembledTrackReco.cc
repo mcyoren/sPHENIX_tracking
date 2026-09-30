@@ -354,11 +354,11 @@ Tpc_AssembledTrackReco::Tpc_AssembledTrackReco(const std::string& name, const st
   , m_hits(nullptr)
   , m_event(0)
   , m_idealPadMap(nullptr)
-  , m_connectMaxLayerGap(16)
-  , m_connect_dphi(0.03)
-  , m_connect_dtbin(8.0)
-  , m_connect_dphi_slope(0.01)
-  , m_connect_dtbin_slope(2.0)
+  , m_connectMaxLayerGap{{16, 16, 16}}
+  , m_connect_dphi{{0.03, 0.03, 0.03}}
+  , m_connect_dtbin{{8.0, 8.0, 8.0}}
+  , m_connect_dphi_slope{{0.01, 0.01, 0.01}}
+  , m_connect_dtbin_slope{{2.0, 2.0, 2.0}}
   , m_useSagittaPhiFit(true)
   , m_useAnalyticSagittaSlope(false)
   , m_doDebugHistograms(false)
@@ -379,22 +379,10 @@ Tpc_AssembledTrackReco::Tpc_AssembledTrackReco(const std::string& name, const st
   , m_seedSigmaPx(1.0)
   , m_seedSigmaPy(1.0)
   , m_seedSigmaPz(1.0)
-  , m_h_dphi(nullptr)
-  , m_h_dtbin(nullptr)
-  , m_h_dmphi(nullptr)
-  , m_h_dmtbin(nullptr)
-  , m_h_score(nullptr)
-  , m_h_dphi_vs_dtbin(nullptr)
-  , m_h_dmphi_vs_dmtbin(nullptr)
-  , m_h_dphi_vs_dmphi(nullptr)
-  , m_h_tbin_slope_vs_first_tbin(nullptr)
-  , m_h_tbin_slope_vs_last_tbin(nullptr)
   , m_h_track_tbin_slope_vs_tbin_span_3modules(nullptr)
   , m_h_track_tbin_slope_vs_first_tbin_3modules(nullptr)
   , m_h_track_tbin_slope_vs_last_tbin_3modules(nullptr)
-  , m_h_layer_gap(nullptr)
   , m_h_nsegments(nullptr)
-  , m_h_matched_sector_delta(nullptr)
 {
 }
 
@@ -567,25 +555,36 @@ void Tpc_AssembledTrackReco::create_debug_histograms()
   }
   m_debugOutputFile->cd();
 
-  m_h_dphi = new TH1D("h_dphi", std::format("#Delta#phi at match point, cut={:.4g};|#Delta#phi| [rad];tested pairs", m_connect_dphi).c_str(), 200, 0.0, std::max(0.2, 5.0 * m_connect_dphi));
-  m_h_dtbin = new TH1D("h_dtbin", std::format("#Deltatbin at match point, cut={:.4g};|#Deltatbin|;tested pairs", m_connect_dtbin).c_str(), 200, 0.0, std::max(50.0, 5.0 * m_connect_dtbin));
-  m_h_dmphi = new TH1D("h_dmphi", std::format("#Delta(d#phi/dr), cut={:.4g};|#Delta(d#phi/dr)| [rad/cm];tested pairs", m_connect_dphi_slope).c_str(), 200, 0.0, std::max(0.08, 5.0 * m_connect_dphi_slope));
-  m_h_dmtbin = new TH1D("h_dmtbin", std::format("#Delta(dtbin/dr), cut={:.4g};|#Delta(dtbin/dr)| [tbin/cm];tested pairs", m_connect_dtbin_slope).c_str(), 200, 0.0, std::max(20.0, 5.0 * m_connect_dtbin_slope));
-  m_h_score = new TH1D("h_score", "accepted connection score;score;accepted connections", 200, 0.0, 20.0);
+  for (unsigned int region = 0; region < kRegionCount; ++region)
+  {
+    const std::string rtag = "r" + std::to_string(region + 1);
+    const std::string prefix = "R" + std::to_string(region + 1) + " ";
+    const double dphi_cut = m_connect_dphi[region];
+    const double dtbin_cut = m_connect_dtbin[region];
+    const double dmphi_cut = m_connect_dphi_slope[region];
+    const double dmtbin_cut = m_connect_dtbin_slope[region];
 
-  m_h_dphi_vs_dtbin = new TH2D("h_dphi_vs_dtbin", std::format("#Delta#phi vs #Deltatbin, cuts #Delta#phi<{:.4g} #Deltatbin<{:.4g};|#Delta#phi| [rad];|#Deltatbin|", m_connect_dphi, m_connect_dtbin).c_str(), 160, 0.0, std::max(0.2, 5.0 * m_connect_dphi), 160, 0.0, std::max(50.0, 5.0 * m_connect_dtbin));
-  m_h_dmphi_vs_dmtbin = new TH2D("h_dmphi_vs_dmtbin", std::format("slope residuals, cuts #Delta(d#phi/dr)<{:.4g} #Delta(dtbin/dr)<{:.4g};|#Delta(d#phi/dr)| [rad/cm];|#Delta(dtbin/dr)| [tbin/cm]", m_connect_dphi_slope, m_connect_dtbin_slope).c_str(), 160, 0.0, std::max(0.08, 5.0 * m_connect_dphi_slope), 160, 0.0, std::max(20.0, 5.0 * m_connect_dtbin_slope));
-  m_h_dphi_vs_dmphi = new TH2D("h_dphi_vs_dmphi", std::format("#phi position vs slope residual, cuts #Delta#phi<{:.4g} #Delta(d#phi/dr)<{:.4g};|#Delta#phi| [rad];|#Delta(d#phi/dr)| [rad/cm]", m_connect_dphi, m_connect_dphi_slope).c_str(), 160, 0.0, std::max(0.2, 5.0 * m_connect_dphi), 160, 0.0, std::max(0.08, 5.0 * m_connect_dphi_slope));
+    m_h_dphi[region] = new TH1D(("h_dphi_" + rtag).c_str(), std::format("{}#Delta#phi at match point, cut={:.4g};|#Delta#phi| [rad];tested pairs", prefix, dphi_cut).c_str(), 200, 0.0, std::max(0.2, 5.0 * dphi_cut));
+    m_h_dtbin[region] = new TH1D(("h_dtbin_" + rtag).c_str(), std::format("{}#Deltatbin at match point, cut={:.4g};|#Deltatbin|;tested pairs", prefix, dtbin_cut).c_str(), 200, 0.0, std::max(50.0, 5.0 * dtbin_cut));
+    m_h_dmphi[region] = new TH1D(("h_dmphi_" + rtag).c_str(), std::format("{}#Delta(d#phi/dr), cut={:.4g};|#Delta(d#phi/dr)| [rad/cm];tested pairs", prefix, dmphi_cut).c_str(), 200, 0.0, std::max(0.08, 5.0 * dmphi_cut));
+    m_h_dmtbin[region] = new TH1D(("h_dmtbin_" + rtag).c_str(), std::format("{}#Delta(dtbin/dr), cut={:.4g};|#Delta(dtbin/dr)| [tbin/cm];tested pairs", prefix, dmtbin_cut).c_str(), 200, 0.0, std::max(20.0, 5.0 * dmtbin_cut));
+    m_h_score[region] = new TH1D(("h_score_" + rtag).c_str(), (prefix + "accepted connection score;score;accepted connections").c_str(), 200, 0.0, 20.0);
 
-  m_h_tbin_slope_vs_first_tbin = new TH2D("h_tbin_slope_vs_first_tbin", "tested connection dtbin/dr vs first timebin;first timebin;dtbin/dr [tbin/cm]", 200, 0.0, 600.0, 200, -20.0, 20.0);
-  m_h_tbin_slope_vs_last_tbin = new TH2D("h_tbin_slope_vs_last_tbin", "tested connection dtbin/dr vs last timebin;last timebin;dtbin/dr [tbin/cm]", 200, 0.0, 600.0, 200, -20.0, 20.0);
+    m_h_dphi_vs_dtbin[region] = new TH2D(("h_dphi_vs_dtbin_" + rtag).c_str(), std::format("{}#Delta#phi vs #Deltatbin, cuts #Delta#phi<{:.4g} #Deltatbin<{:.4g};|#Delta#phi| [rad];|#Deltatbin|", prefix, dphi_cut, dtbin_cut).c_str(), 160, 0.0, std::max(0.2, 5.0 * dphi_cut), 160, 0.0, std::max(50.0, 5.0 * dtbin_cut));
+    m_h_dmphi_vs_dmtbin[region] = new TH2D(("h_dmphi_vs_dmtbin_" + rtag).c_str(), std::format("{}slope residuals, cuts #Delta(d#phi/dr)<{:.4g} #Delta(dtbin/dr)<{:.4g};|#Delta(d#phi/dr)| [rad/cm];|#Delta(dtbin/dr)| [tbin/cm]", prefix, dmphi_cut, dmtbin_cut).c_str(), 160, 0.0, std::max(0.08, 5.0 * dmphi_cut), 160, 0.0, std::max(20.0, 5.0 * dmtbin_cut));
+    m_h_dphi_vs_dmphi[region] = new TH2D(("h_dphi_vs_dmphi_" + rtag).c_str(), std::format("{}#phi position vs slope residual, cuts #Delta#phi<{:.4g} #Delta(d#phi/dr)<{:.4g};|#Delta#phi| [rad];|#Delta(d#phi/dr)| [rad/cm]", prefix, dphi_cut, dmphi_cut).c_str(), 160, 0.0, std::max(0.2, 5.0 * dphi_cut), 160, 0.0, std::max(0.08, 5.0 * dmphi_cut));
+
+    m_h_tbin_slope_vs_first_tbin[region] = new TH2D(("h_tbin_slope_vs_first_tbin_" + rtag).c_str(), (prefix + "tested connection dtbin/dr vs first timebin;first timebin;dtbin/dr [tbin/cm]").c_str(), 200, 0.0, 600.0, 200, -20.0, 20.0);
+    m_h_tbin_slope_vs_last_tbin[region] = new TH2D(("h_tbin_slope_vs_last_tbin_" + rtag).c_str(), (prefix + "tested connection dtbin/dr vs last timebin;last timebin;dtbin/dr [tbin/cm]").c_str(), 200, 0.0, 600.0, 200, -20.0, 20.0);
+
+    m_h_layer_gap[region] = new TH1D(("h_layer_gap_" + rtag).c_str(), (prefix + "accepted connection layer gap;b.first_layer - a.last_layer - 1;accepted connections").c_str(), 16, -0.5, 15.5);
+    m_h_matched_sector_delta[region] = new TH1D(("h_matched_sector_delta_" + rtag).c_str(), (prefix + "accepted matched sector difference;wrapped #Delta sector;accepted connections").c_str(), 25, -12.5, 12.5);
+  }
+
   m_h_track_tbin_slope_vs_tbin_span_3modules = new TH2D("h_track_tbin_slope_vs_tbin_span_3modules", "3-module tracks dtbin/dr vs last-first timebin;last timebin - first timebin;dtbin/dr [tbin/cm]", 200, -600.0, 600.0, 200, -20.0, 20.0);
   m_h_track_tbin_slope_vs_first_tbin_3modules = new TH2D("h_track_tbin_slope_vs_first_tbin_3modules", "3-module tracks dtbin/dr vs first timebin;first timebin;dtbin/dr [tbin/cm]", 200, 0.0, 600.0, 200, -20.0, 20.0);
   m_h_track_tbin_slope_vs_last_tbin_3modules = new TH2D("h_track_tbin_slope_vs_last_tbin_3modules", "3-module tracks dtbin/dr vs last timebin;last timebin;dtbin/dr [tbin/cm]", 200, 0.0, 600.0, 200, -20.0, 20.0);
-
-  m_h_layer_gap = new TH1D("h_layer_gap", "accepted connection layer gap;b.first_layer - a.last_layer - 1;accepted connections", 16, -0.5, 15.5);
   m_h_nsegments = new TH1D("h_nsegments", "pieces per assembled track;nsegments;assembled tracks", 16, -0.5, 15.5);
-  m_h_matched_sector_delta = new TH1D("h_matched_sector_delta", "accepted matched sector difference;wrapped #Delta sector;accepted connections", 25, -12.5, 12.5);
 }
 
 void Tpc_AssembledTrackReco::write_debug_histograms()
@@ -596,70 +595,26 @@ void Tpc_AssembledTrackReco::write_debug_histograms()
   }
   m_debugOutputFile->cd();
 
-  if (m_h_dphi)
+  for (unsigned int region = 0; region < kRegionCount; ++region)
   {
-    m_h_dphi->Write();
+    if (m_h_dphi[region]) m_h_dphi[region]->Write();
+    if (m_h_dtbin[region]) m_h_dtbin[region]->Write();
+    if (m_h_dmphi[region]) m_h_dmphi[region]->Write();
+    if (m_h_dmtbin[region]) m_h_dmtbin[region]->Write();
+    if (m_h_score[region]) m_h_score[region]->Write();
+    if (m_h_dphi_vs_dtbin[region]) m_h_dphi_vs_dtbin[region]->Write();
+    if (m_h_dmphi_vs_dmtbin[region]) m_h_dmphi_vs_dmtbin[region]->Write();
+    if (m_h_dphi_vs_dmphi[region]) m_h_dphi_vs_dmphi[region]->Write();
+    if (m_h_tbin_slope_vs_first_tbin[region]) m_h_tbin_slope_vs_first_tbin[region]->Write();
+    if (m_h_tbin_slope_vs_last_tbin[region]) m_h_tbin_slope_vs_last_tbin[region]->Write();
+    if (m_h_layer_gap[region]) m_h_layer_gap[region]->Write();
+    if (m_h_matched_sector_delta[region]) m_h_matched_sector_delta[region]->Write();
   }
-  if (m_h_dtbin)
-  {
-    m_h_dtbin->Write();
-  }
-  if (m_h_dmphi)
-  {
-    m_h_dmphi->Write();
-  }
-  if (m_h_dmtbin)
-  {
-    m_h_dmtbin->Write();
-  }
-  if (m_h_score)
-  {
-    m_h_score->Write();
-  }
-  if (m_h_dphi_vs_dtbin)
-  {
-    m_h_dphi_vs_dtbin->Write();
-  }
-  if (m_h_dmphi_vs_dmtbin)
-  {
-    m_h_dmphi_vs_dmtbin->Write();
-  }
-  if (m_h_dphi_vs_dmphi)
-  {
-    m_h_dphi_vs_dmphi->Write();
-  }
-  if (m_h_tbin_slope_vs_first_tbin)
-  {
-    m_h_tbin_slope_vs_first_tbin->Write();
-  }
-  if (m_h_tbin_slope_vs_last_tbin)
-  {
-    m_h_tbin_slope_vs_last_tbin->Write();
-  }
-  if (m_h_track_tbin_slope_vs_tbin_span_3modules)
-  {
-    m_h_track_tbin_slope_vs_tbin_span_3modules->Write();
-  }
-  if (m_h_track_tbin_slope_vs_first_tbin_3modules)
-  {
-    m_h_track_tbin_slope_vs_first_tbin_3modules->Write();
-  }
-  if (m_h_track_tbin_slope_vs_last_tbin_3modules)
-  {
-    m_h_track_tbin_slope_vs_last_tbin_3modules->Write();
-  }
-  if (m_h_layer_gap)
-  {
-    m_h_layer_gap->Write();
-  }
-  if (m_h_nsegments)
-  {
-    m_h_nsegments->Write();
-  }
-  if (m_h_matched_sector_delta)
-  {
-    m_h_matched_sector_delta->Write();
-  }
+
+  if (m_h_track_tbin_slope_vs_tbin_span_3modules) m_h_track_tbin_slope_vs_tbin_span_3modules->Write();
+  if (m_h_track_tbin_slope_vs_first_tbin_3modules) m_h_track_tbin_slope_vs_first_tbin_3modules->Write();
+  if (m_h_track_tbin_slope_vs_last_tbin_3modules) m_h_track_tbin_slope_vs_last_tbin_3modules->Write();
+  if (m_h_nsegments) m_h_nsegments->Write();
 }
 
 void Tpc_AssembledTrackReco::reset_tree_vars()
@@ -1083,6 +1038,8 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
   score = std::numeric_limits<double>::max();
   b_phi_intercept_shifted = b.phi_intercept;
 
+  const unsigned int region = region_index(b.region);
+
   if (a.side != b.side)
   {
     return false;
@@ -1093,7 +1050,7 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
   }
 
   const unsigned int gap = b.first_layer - a.last_layer - 1;
-  if (gap > m_connectMaxLayerGap)
+  if (gap > m_connectMaxLayerGap[region])
   {
     return false;
   }
@@ -1115,13 +1072,13 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
   const double tbin_a = a.tbin_slope_r * rmatch + a.tbin_intercept_r;
   const double tbin_b = b.tbin_slope * rmatch + b.tbin_intercept;
   const double dtbin = std::fabs(tbin_a - tbin_b);
-  if (dtbin > m_connect_dtbin)
+  if (dtbin > m_connect_dtbin[region])
   {
     return false;
   }
 
   const double dmtbin = std::fabs(a.tbin_slope_r - b.tbin_slope);
-  if (dmtbin > m_connect_dtbin_slope)
+  if (dmtbin > m_connect_dtbin_slope[region])
   {
     return false;
   }
@@ -1148,8 +1105,8 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
     const double dmphi_linear =
         std::fabs(a.phi_slope - b.phi_slope);
 
-    if (dphi_linear > m_linearPhiPrecutScale * m_connect_dphi ||
-        dmphi_linear > m_linearPhiPrecutScale * m_connect_dphi_slope)
+    if (dphi_linear > m_linearPhiPrecutScale * m_connect_dphi[region] ||
+        dmphi_linear > m_linearPhiPrecutScale * m_connect_dphi_slope[region])
     {
       return false;
     }
@@ -1166,13 +1123,13 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
       b.phi_intercept + (phi_b - phi_b_pair.first);
 
   const double dphi = std::fabs(phi_a_pair.first - phi_b);
-  if (dphi > m_connect_dphi)
+  if (dphi > m_connect_dphi[region])
   {
     return false;
   }
 
   const double dmphi = std::fabs(phi_a_pair.second - phi_b_pair.second);
-  if (dmphi > m_connect_dphi_slope)
+  if (dmphi > m_connect_dphi_slope[region])
   {
     return false;
   }
@@ -1182,43 +1139,43 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
   {
     std::lock_guard<std::mutex> lock(m_debugMutex);
 
-    if (m_h_dphi)
+    if (m_h_dphi[region])
     {
-      m_h_dphi->Fill(dphi);
+      m_h_dphi[region]->Fill(dphi);
     }
-    if (m_h_dtbin)
+    if (m_h_dtbin[region])
     {
-      m_h_dtbin->Fill(dtbin);
+      m_h_dtbin[region]->Fill(dtbin);
     }
-    if (m_h_dmphi)
+    if (m_h_dmphi[region])
     {
-      m_h_dmphi->Fill(dmphi);
+      m_h_dmphi[region]->Fill(dmphi);
     }
-    if (m_h_dmtbin)
+    if (m_h_dmtbin[region])
     {
-      m_h_dmtbin->Fill(dmtbin);
+      m_h_dmtbin[region]->Fill(dmtbin);
     }
-    if (m_h_dphi_vs_dtbin)
+    if (m_h_dphi_vs_dtbin[region])
     {
-      m_h_dphi_vs_dtbin->Fill(dphi, dtbin);
+      m_h_dphi_vs_dtbin[region]->Fill(dphi, dtbin);
     }
-    if (m_h_dmphi_vs_dmtbin)
+    if (m_h_dmphi_vs_dmtbin[region])
     {
-      m_h_dmphi_vs_dmtbin->Fill(dmphi, dmtbin);
+      m_h_dmphi_vs_dmtbin[region]->Fill(dmphi, dmtbin);
     }
-    if (m_h_dphi_vs_dmphi)
+    if (m_h_dphi_vs_dmphi[region])
     {
-      m_h_dphi_vs_dmphi->Fill(dphi, dmphi);
+      m_h_dphi_vs_dmphi[region]->Fill(dphi, dmphi);
     }
-    if (m_h_tbin_slope_vs_last_tbin)
+    if (m_h_tbin_slope_vs_last_tbin[region])
     {
-      m_h_tbin_slope_vs_last_tbin->Fill(
+      m_h_tbin_slope_vs_last_tbin[region]->Fill(
           a.tbin_slope_r * ra + a.tbin_intercept_r,
           a.tbin_slope_r);
     }
-    if (m_h_tbin_slope_vs_first_tbin && !b.points.empty())
+    if (m_h_tbin_slope_vs_first_tbin[region] && !b.points.empty())
     {
-      m_h_tbin_slope_vs_first_tbin->Fill(
+      m_h_tbin_slope_vs_first_tbin[region]->Fill(
           b.points.front().tbin,
           b.tbin_slope);
     }
@@ -1230,10 +1187,10 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
   constexpr double w_mtbin = 2.0;
 
   score =
-      w_phi * (dphi / m_connect_dphi) * (dphi / m_connect_dphi) +
-      w_tbin * (dtbin / m_connect_dtbin) * (dtbin / m_connect_dtbin) +
-      w_mphi * (dmphi / m_connect_dphi_slope) * (dmphi / m_connect_dphi_slope) +
-      w_mtbin * (dmtbin / m_connect_dtbin_slope) * (dmtbin / m_connect_dtbin_slope) +
+      w_phi * (dphi / m_connect_dphi[region]) * (dphi / m_connect_dphi[region]) +
+      w_tbin * (dtbin / m_connect_dtbin[region]) * (dtbin / m_connect_dtbin[region]) +
+      w_mphi * (dmphi / m_connect_dphi_slope[region]) * (dmphi / m_connect_dphi_slope[region]) +
+      w_mtbin * (dmtbin / m_connect_dtbin_slope[region]) * (dmtbin / m_connect_dtbin_slope[region]) +
       0.05 * static_cast<double>(gap);
 
   return true;
@@ -1313,20 +1270,21 @@ void Tpc_AssembledTrackReco::connect_sector_pieces(const std::vector<Piece>& pie
         {
           const Piece& accepted_piece = pieces[static_cast<unsigned int>(best_j)];
           const unsigned int accepted_gap = accepted_piece.first_layer - current.last_layer - 1;
+          const unsigned int qa_region = region_index(accepted_piece.region);
           if (m_doDebugHistograms)
           {
             std::lock_guard<std::mutex> lock(m_debugMutex);
-            if (m_h_score)
+            if (m_h_score[qa_region])
             {
-              m_h_score->Fill(best_score);
+              m_h_score[qa_region]->Fill(best_score);
             }
-            if (m_h_layer_gap)
+            if (m_h_layer_gap[qa_region])
             {
-              m_h_layer_gap->Fill(static_cast<double>(accepted_gap));
+              m_h_layer_gap[qa_region]->Fill(static_cast<double>(accepted_gap));
             }
-            if (m_h_matched_sector_delta)
+            if (m_h_matched_sector_delta[qa_region])
             {
-              m_h_matched_sector_delta->Fill(static_cast<double>(wrapped_sector_delta(current.last_sector, accepted_piece.sector)));
+              m_h_matched_sector_delta[qa_region]->Fill(static_cast<double>(wrapped_sector_delta(current.last_sector, accepted_piece.sector)));
             }
           }
 
@@ -1352,13 +1310,15 @@ bool Tpc_AssembledTrackReco::fast_piece_relation(const Candidate& a,
   tight = false;
   score = std::numeric_limits<double>::max();
 
+  const unsigned int region = region_index(b.region);
+
   if (a.side != b.side || a.last_layer >= b.first_layer)
   {
     return false;
   }
 
   const unsigned int gap = b.first_layer - a.last_layer - 1;
-  if (gap > m_connectMaxLayerGap)
+  if (gap > m_connectMaxLayerGap[region])
   {
     return false;
   }
@@ -1382,25 +1342,25 @@ bool Tpc_AssembledTrackReco::fast_piece_relation(const Candidate& a,
   const double dphi = std::fabs(phi_a - phi_b);
   const double dmphi = std::fabs(a.phi_slope - b.phi_slope);
 
-  broad = dtbin <= m_fastBroadScale * m_connect_dtbin &&
-          dmtbin <= m_fastBroadScale * m_connect_dtbin_slope &&
-          dphi <= m_fastBroadScale * m_connect_dphi &&
-          dmphi <= m_fastBroadScale * m_connect_dphi_slope;
+  broad = dtbin <= m_fastBroadScale * m_connect_dtbin[region] &&
+          dmtbin <= m_fastBroadScale * m_connect_dtbin_slope[region] &&
+          dphi <= m_fastBroadScale * m_connect_dphi[region] &&
+          dmphi <= m_fastBroadScale * m_connect_dphi_slope[region];
 
   if (!broad)
   {
     return true;
   }
 
-  tight = dtbin <= m_fastTightScale * m_connect_dtbin &&
-          dmtbin <= m_fastTightScale * m_connect_dtbin_slope &&
-          dphi <= m_fastTightScale * m_connect_dphi &&
-          dmphi <= m_fastTightScale * m_connect_dphi_slope;
+  tight = dtbin <= m_fastTightScale * m_connect_dtbin[region] &&
+          dmtbin <= m_fastTightScale * m_connect_dtbin_slope[region] &&
+          dphi <= m_fastTightScale * m_connect_dphi[region] &&
+          dmphi <= m_fastTightScale * m_connect_dphi_slope[region];
 
-  score = sqr(dphi / std::max(m_fastBroadScale * m_connect_dphi, 1.0e-9)) +
-          sqr(dtbin / std::max(m_fastBroadScale * m_connect_dtbin, 1.0e-9)) +
-          sqr(dmphi / std::max(m_fastBroadScale * m_connect_dphi_slope, 1.0e-9)) +
-          sqr(dmtbin / std::max(m_fastBroadScale * m_connect_dtbin_slope, 1.0e-9)) +
+  score = sqr(dphi / std::max(m_fastBroadScale * m_connect_dphi[region], 1.0e-9)) +
+          sqr(dtbin / std::max(m_fastBroadScale * m_connect_dtbin[region], 1.0e-9)) +
+          sqr(dmphi / std::max(m_fastBroadScale * m_connect_dphi_slope[region], 1.0e-9)) +
+          sqr(dmtbin / std::max(m_fastBroadScale * m_connect_dtbin_slope[region], 1.0e-9)) +
           0.05 * static_cast<double>(gap);
   return true;
 }
@@ -1506,14 +1466,15 @@ void Tpc_AssembledTrackReco::connect_sector_pieces_fast(const std::vector<Piece>
 
       if (m_doDebugHistograms)
       {
+        const unsigned int qa_region = region_index(pieces[accepted_index].region);
         std::lock_guard<std::mutex> lock(m_debugMutex);
-        if (m_h_score) m_h_score->Fill(unique_score);
-        if (m_h_layer_gap)
+        if (m_h_score[qa_region]) m_h_score[qa_region]->Fill(unique_score);
+        if (m_h_layer_gap[qa_region])
         {
           const unsigned int gap = pieces[accepted_index].first_layer - current.last_layer - 1;
-          m_h_layer_gap->Fill(static_cast<double>(gap));
+          m_h_layer_gap[qa_region]->Fill(static_cast<double>(gap));
         }
-        if (m_h_matched_sector_delta) m_h_matched_sector_delta->Fill(0.0);
+        if (m_h_matched_sector_delta[qa_region]) m_h_matched_sector_delta[qa_region]->Fill(0.0);
       }
 
       current = std::move(refit);
@@ -1537,6 +1498,8 @@ bool Tpc_AssembledTrackReco::cheap_candidate_relation(const Candidate& a,
   tight = false;
   score = std::numeric_limits<double>::max();
 
+  const unsigned int region = region_index(b.first_region);
+
   if (a.side != b.side || a.last_layer >= b.first_layer)
   {
     return false;
@@ -1547,7 +1510,7 @@ bool Tpc_AssembledTrackReco::cheap_candidate_relation(const Candidate& a,
   }
 
   const unsigned int gap = b.first_layer - a.last_layer - 1;
-  if (gap > m_connectMaxLayerGap)
+  if (gap > m_connectMaxLayerGap[region])
   {
     return false;
   }
@@ -1572,10 +1535,10 @@ bool Tpc_AssembledTrackReco::cheap_candidate_relation(const Candidate& a,
   const double dmphi_linear = std::fabs(a.phi_slope - b.phi_slope);
 
   const bool linear_broad = m_linearPhiPrecutScale <= 0.0 ||
-                            (dphi_linear <= window_scale * m_linearPhiPrecutScale * m_connect_dphi &&
-                             dmphi_linear <= window_scale * m_linearPhiPrecutScale * m_connect_dphi_slope);
-  broad = dtbin <= window_scale * m_connect_dtbin &&
-          dmtbin <= window_scale * m_connect_dtbin_slope &&
+                            (dphi_linear <= window_scale * m_linearPhiPrecutScale * m_connect_dphi[region] &&
+                             dmphi_linear <= window_scale * m_linearPhiPrecutScale * m_connect_dphi_slope[region]);
+  broad = dtbin <= window_scale * m_connect_dtbin[region] &&
+          dmtbin <= window_scale * m_connect_dtbin_slope[region] &&
           linear_broad;
 
   if (!broad)
@@ -1583,18 +1546,18 @@ bool Tpc_AssembledTrackReco::cheap_candidate_relation(const Candidate& a,
     return true;
   }
 
-  tight = dtbin <= window_scale * m_normalTightScale * m_connect_dtbin &&
-          dmtbin <= window_scale * m_normalTightScale * m_connect_dtbin_slope &&
-          dphi_linear <= window_scale * m_normalTightScale * m_connect_dphi &&
-          dmphi_linear <= window_scale * m_normalTightScale * m_connect_dphi_slope;
+  tight = dtbin <= window_scale * m_normalTightScale * m_connect_dtbin[region] &&
+          dmtbin <= window_scale * m_normalTightScale * m_connect_dtbin_slope[region] &&
+          dphi_linear <= window_scale * m_normalTightScale * m_connect_dphi[region] &&
+          dmphi_linear <= window_scale * m_normalTightScale * m_connect_dphi_slope[region];
 
   const double phi_scale = m_linearPhiPrecutScale > 0.0
                                ? m_linearPhiPrecutScale
                                : 1.0;
-  score = sqr(dphi_linear / std::max(window_scale * phi_scale * m_connect_dphi, 1.0e-9)) +
-          sqr(dtbin / std::max(window_scale * m_connect_dtbin, 1.0e-9)) +
-          sqr(dmphi_linear / std::max(window_scale * phi_scale * m_connect_dphi_slope, 1.0e-9)) +
-          sqr(dmtbin / std::max(window_scale * m_connect_dtbin_slope, 1.0e-9)) +
+  score = sqr(dphi_linear / std::max(window_scale * phi_scale * m_connect_dphi[region], 1.0e-9)) +
+          sqr(dtbin / std::max(window_scale * m_connect_dtbin[region], 1.0e-9)) +
+          sqr(dmphi_linear / std::max(window_scale * phi_scale * m_connect_dphi_slope[region], 1.0e-9)) +
+          sqr(dmtbin / std::max(window_scale * m_connect_dtbin_slope[region], 1.0e-9)) +
           0.05 * static_cast<double>(gap);
   return true;
 }
@@ -1606,6 +1569,8 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
                                                       double window_scale) const
 {
   score = std::numeric_limits<double>::max();
+
+  const unsigned int region = region_index(b.first_region);
 
   bool broad = false;
   bool tight = false;
@@ -1631,10 +1596,10 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
   const double dphi = std::fabs(phi_a_pair.first - phi_b);
   const double dmphi = std::fabs(phi_a_pair.second - phi_b_pair_raw.second);
 
-  if (dphi > window_scale * m_connect_dphi ||
-      dmphi > window_scale * m_connect_dphi_slope ||
-      dtbin > window_scale * m_connect_dtbin ||
-      dmtbin > window_scale * m_connect_dtbin_slope)
+  if (dphi > window_scale * m_connect_dphi[region] ||
+      dmphi > window_scale * m_connect_dphi_slope[region] ||
+      dtbin > window_scale * m_connect_dtbin[region] ||
+      dmtbin > window_scale * m_connect_dtbin_slope[region])
   {
     return false;
   }
@@ -1642,21 +1607,21 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
   if (m_doDebugHistograms)
   {
     std::lock_guard<std::mutex> lock(m_debugMutex);
-    if (m_h_dphi) m_h_dphi->Fill(dphi);
-    if (m_h_dtbin) m_h_dtbin->Fill(dtbin);
-    if (m_h_dmphi) m_h_dmphi->Fill(dmphi);
-    if (m_h_dmtbin) m_h_dmtbin->Fill(dmtbin);
-    if (m_h_dphi_vs_dtbin) m_h_dphi_vs_dtbin->Fill(dphi, dtbin);
-    if (m_h_dmphi_vs_dmtbin) m_h_dmphi_vs_dmtbin->Fill(dmphi, dmtbin);
-    if (m_h_dphi_vs_dmphi) m_h_dphi_vs_dmphi->Fill(dphi, dmphi);
-    if (m_h_tbin_slope_vs_last_tbin)
+    if (m_h_dphi[region]) m_h_dphi[region]->Fill(dphi);
+    if (m_h_dtbin[region]) m_h_dtbin[region]->Fill(dtbin);
+    if (m_h_dmphi[region]) m_h_dmphi[region]->Fill(dmphi);
+    if (m_h_dmtbin[region]) m_h_dmtbin[region]->Fill(dmtbin);
+    if (m_h_dphi_vs_dtbin[region]) m_h_dphi_vs_dtbin[region]->Fill(dphi, dtbin);
+    if (m_h_dmphi_vs_dmtbin[region]) m_h_dmphi_vs_dmtbin[region]->Fill(dmphi, dmtbin);
+    if (m_h_dphi_vs_dmphi[region]) m_h_dphi_vs_dmphi[region]->Fill(dphi, dmphi);
+    if (m_h_tbin_slope_vs_last_tbin[region])
     {
-      m_h_tbin_slope_vs_last_tbin->Fill(a.tbin_slope_r * ra + a.tbin_intercept_r,
+      m_h_tbin_slope_vs_last_tbin[region]->Fill(a.tbin_slope_r * ra + a.tbin_intercept_r,
                                         a.tbin_slope_r);
     }
-    if (m_h_tbin_slope_vs_first_tbin)
+    if (m_h_tbin_slope_vs_first_tbin[region])
     {
-      m_h_tbin_slope_vs_first_tbin->Fill(b.tbin_slope_r * rb + b.tbin_intercept_r,
+      m_h_tbin_slope_vs_first_tbin[region]->Fill(b.tbin_slope_r * rb + b.tbin_intercept_r,
                                          b.tbin_slope_r);
     }
   }
@@ -1668,10 +1633,10 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
   const unsigned int gap = b.first_layer - a.last_layer - 1;
 
   score =
-      w_phi * sqr(dphi / std::max(window_scale * m_connect_dphi, 1.0e-9)) +
-      w_tbin * sqr(dtbin / std::max(window_scale * m_connect_dtbin, 1.0e-9)) +
-      w_mphi * sqr(dmphi / std::max(window_scale * m_connect_dphi_slope, 1.0e-9)) +
-      w_mtbin * sqr(dmtbin / std::max(window_scale * m_connect_dtbin_slope, 1.0e-9)) +
+      w_phi * sqr(dphi / std::max(window_scale * m_connect_dphi[region], 1.0e-9)) +
+      w_tbin * sqr(dtbin / std::max(window_scale * m_connect_dtbin[region], 1.0e-9)) +
+      w_mphi * sqr(dmphi / std::max(window_scale * m_connect_dphi_slope[region], 1.0e-9)) +
+      w_mtbin * sqr(dmtbin / std::max(window_scale * m_connect_dtbin_slope[region], 1.0e-9)) +
       0.05 * static_cast<double>(gap);
 
   return true;
@@ -1805,14 +1770,15 @@ void Tpc_AssembledTrackReco::connect_side_candidates(const std::vector<Piece>& p
       }
 
       const unsigned int accepted_gap = accepted_seed.first_layer - current.last_layer - 1;
+      const unsigned int qa_region = region_index(accepted_seed.first_region);
       if (m_doDebugHistograms)
       {
         std::lock_guard<std::mutex> lock(m_debugMutex);
-        if (m_h_score) m_h_score->Fill(best_score);
-        if (m_h_layer_gap) m_h_layer_gap->Fill(static_cast<double>(accepted_gap));
-        if (m_h_matched_sector_delta)
+        if (m_h_score[qa_region]) m_h_score[qa_region]->Fill(best_score);
+        if (m_h_layer_gap[qa_region]) m_h_layer_gap[qa_region]->Fill(static_cast<double>(accepted_gap));
+        if (m_h_matched_sector_delta[qa_region])
         {
-          m_h_matched_sector_delta->Fill(
+          m_h_matched_sector_delta[qa_region]->Fill(
               static_cast<double>(wrapped_sector_delta(current.last_sector,
                                                        accepted_seed.first_sector)));
         }
