@@ -47,6 +47,34 @@ namespace
     return value * value;
   }
 
+  double piece_reliability(unsigned int nblobs)
+  {
+    if (nblobs >= 8U) return 1.0;
+    if (nblobs <= 1U) return 0.25;
+    return std::max(0.25, static_cast<double>(nblobs - 1U) / 7.0);
+  }
+
+  unsigned int minimum_layer_mask_gap(uint64_t a, uint64_t b)
+  {
+    if ((a & b) != 0U)
+    {
+      return std::numeric_limits<unsigned int>::max();
+    }
+
+    unsigned int best = std::numeric_limits<unsigned int>::max();
+    for (unsigned int ia = 0; ia < 48U; ++ia)
+    {
+      if ((a & (uint64_t{1} << ia)) == 0U) continue;
+      for (unsigned int ib = 0; ib < 48U; ++ib)
+      {
+        if ((b & (uint64_t{1} << ib)) == 0U) continue;
+        const unsigned int diff = ia > ib ? ia - ib : ib - ia;
+        best = std::min(best, diff > 0U ? diff - 1U : 0U);
+      }
+    }
+    return best;
+  }
+
   // NOLINTBEGIN(misc-non-private-member-variables-in-classes)
   struct PieceStartSort
   {
@@ -59,13 +87,23 @@ namespace
     {
       const Tpc_AssembledTrackReco::Piece& pa = (*pieces)[a];
       const Tpc_AssembledTrackReco::Piece& pb = (*pieces)[b];
+      if (pa.nblobs != pb.nblobs)
+      {
+        return pa.nblobs > pb.nblobs;
+      }
+      const unsigned int span_a = pa.last_layer >= pa.first_layer
+                                      ? pa.last_layer - pa.first_layer + 1U
+                                      : 0U;
+      const unsigned int span_b = pb.last_layer >= pb.first_layer
+                                      ? pb.last_layer - pb.first_layer + 1U
+                                      : 0U;
+      if (span_a != span_b)
+      {
+        return span_a > span_b;
+      }
       if (pa.first_layer != pb.first_layer)
       {
         return pa.first_layer < pb.first_layer;
-      }
-      if (pa.last_layer != pb.last_layer)
-      {
-        return pa.last_layer < pb.last_layer;
       }
       if (pa.sector != pb.sector)
       {
@@ -86,19 +124,29 @@ namespace
     {
       const Tpc_AssembledTrackReco::Candidate& ca = (*candidates)[a];
       const Tpc_AssembledTrackReco::Candidate& cb = (*candidates)[b];
+      if (ca.nblobs != cb.nblobs)
+      {
+        return ca.nblobs > cb.nblobs;
+      }
+      const unsigned int span_a = ca.last_layer >= ca.first_layer
+                                      ? ca.last_layer - ca.first_layer + 1U
+                                      : 0U;
+      const unsigned int span_b = cb.last_layer >= cb.first_layer
+                                      ? cb.last_layer - cb.first_layer + 1U
+                                      : 0U;
+      if (span_a != span_b)
+      {
+        return span_a > span_b;
+      }
       if (ca.first_layer != cb.first_layer)
       {
         return ca.first_layer < cb.first_layer;
-      }
-      if (ca.last_layer != cb.last_layer)
-      {
-        return ca.last_layer < cb.last_layer;
       }
       if (ca.first_sector != cb.first_sector)
       {
         return ca.first_sector < cb.first_sector;
       }
-      return ca.nsegments < cb.nsegments;
+      return ca.nsegments > cb.nsegments;
     }
   };
 
@@ -355,24 +403,37 @@ Tpc_AssembledTrackReco::Tpc_AssembledTrackReco(const std::string& name, const st
   , m_event(0)
   , m_idealPadMap(nullptr)
   , m_connectMaxLayerGap{{16, 16, 16}}
-  , m_connect_dphi{{0.03, 0.03, 0.03}}
+  , m_connect_dphi{{0.040, 0.040, 0.035}}
   , m_connect_dtbin{{8.0, 8.0, 8.0}}
-  , m_connect_dphi_slope{{0.01, 0.01, 0.01}}
+  , m_connect_dphi_slope{{0.018, 0.015, 0.012}}
   , m_connect_dtbin_slope{{2.0, 2.0, 2.0}}
   , m_useSagittaPhiFit(true)
-  , m_useAnalyticSagittaSlope(false)
+  , m_useAnalyticSagittaSlope(true)
   , m_doDebugHistograms(false)
   , m_minClustersPerTrack(0)
-  , m_linearPhiPrecutScale(4.0)
-  , m_enableFastSameSectorPass(false)
+  , m_linearPhiPrecutScale(8.0)
+  , m_minSagittaLayers(8)
+  , m_robustPieceMinBlobs(8)
+  , m_score_dphi{{0.018, 0.010, 0.012}}
+  , m_score_dtbin{{2.0, 1.5, 1.6}}
+  , m_score_dphi_slope{{0.0070, 0.0045, 0.0045}}
+  , m_score_dtbin_slope{{0.90, 0.50, 0.50}}
+  , m_weight_phi{{0.75, 0.75, 0.75}}
+  , m_weight_tbin{{1.50, 1.50, 1.50}}
+  , m_weight_phi_slope{{0.75, 0.75, 0.75}}
+  , m_weight_tbin_slope{{2.00, 2.00, 2.00}}
+  , m_enableFastSameSectorPass(true)
   , m_fastBroadScale(1.0)
   , m_fastTightScale(0.35)
-  , m_enableNormalUniqueTight(false)
+  , m_enableNormalUniqueTight(true)
   , m_normalTightScale(0.5)
-  , m_enableRescuePass(false)
-  , m_rescueIterations(1)
-  , m_rescueMaxWindowScale(1.5)
+  , m_enableRescuePass(true)
+  , m_rescueIterations(2)
+  , m_rescueMaxWindowScale(2.0)
   , m_rescueMaxSegments(2)
+  , m_enableFinalReassociation(false)
+  , m_finalReassociationIterations(2)
+  , m_finalReassociationImprovementRatio(0.8)
   , m_seedSigmaX(5.0)
   , m_seedSigmaY(5.0)
   , m_seedSigmaZ(10.0)
@@ -671,31 +732,26 @@ bool Tpc_AssembledTrackReco::make_piece(unsigned int source_index, Piece& p) con
   p.layer_mask = 0;
 
   p.points.clear();
-  p.points.reserve(trk->size_hit_indices());
+  p.hit_indices.clear();
+  p.hit_indices.reserve(trk->size_hit_indices());
 
-  double maxadc = 0.0;
-  for (unsigned int ih = 0; ih < trk->size_hit_indices(); ++ih)
+  struct LayerAccumulator
   {
-    const Tpc_ModuleTrack::HitIndex hi = trk->get_hit_index(ih);
-    TrkrHitSet* hitset = m_hits->findHitSet(hi.first);
-    if (!hitset)
-    {
-      continue;
-    }
+    bool used{false};
+    double radius{0.0};
+    double adc_sum{0.0};
+    double tbin_adc_sum{0.0};
+    double cos_adc_sum{0.0};
+    double sin_adc_sum{0.0};
+    TrkrDefs::hitsetkey first_hitsetkey{0};
+    TrkrDefs::hitkey first_hitkey{0};
+  };
 
-    TrkrHit* hit = hitset->getHit(hi.second);
-    if (!hit)
-    {
-      continue;
-    }
-
-    maxadc = std::max(static_cast<double>(hit->getAdc()), maxadc);
-  }
+  std::array<LayerAccumulator, 48> layer_acc{};
 
   for (unsigned int ih = 0; ih < trk->size_hit_indices(); ++ih)
   {
     const Tpc_ModuleTrack::HitIndex hi = trk->get_hit_index(ih);
-
     TrkrHitSet* hitset = m_hits->findHitSet(hi.first);
     if (!hitset)
     {
@@ -709,36 +765,69 @@ bool Tpc_AssembledTrackReco::make_piece(unsigned int source_index, Piece& p) con
     }
 
     const unsigned int layer = TrkrDefs::getLayer(hi.first);
-    if (layer >= 7U && layer <= 54U)
+    if (layer < 7U || layer > 54U)
     {
-      p.layer_mask |= (uint64_t{1} << (layer - 7U));
+      continue;
     }
+
     const unsigned int pad = TpcDefs::getPad(hi.second);
     const unsigned int tbin = TpcDefs::getTBin(hi.second);
-
     const double radius = m_idealPadMap->get_radius(layer);
     const double phi =
         wrap_to_pi(m_idealPadMap->get_phi(static_cast<unsigned int>(p.side),
                                          layer,
                                          pad));
-
     if (!std::isfinite(radius) || !std::isfinite(phi))
     {
       continue;
     }
 
-    PiecePoint point;
-    point.radius = radius;
-    point.phi = phi;
-    point.tbin = static_cast<double>(tbin);
-    point.weight =
-        Tpc_FittingTools::adcWeight(static_cast<double>(hit->getAdc()),
-                                    maxadc,
-                                    0.5,
-                                    0.15);
-    point.hitsetkey = hi.first;
-    point.hitkey = hi.second;
+    p.hit_indices.emplace_back(hi.first, hi.second);
+    p.layer_mask |= (uint64_t{1} << (layer - 7U));
 
+    auto& acc = layer_acc[layer - 7U];
+    const double adc = std::max(1.0, static_cast<double>(hit->getAdc()));
+    if (!acc.used)
+    {
+      acc.used = true;
+      acc.radius = radius;
+      acc.first_hitsetkey = hi.first;
+      acc.first_hitkey = hi.second;
+    }
+    acc.adc_sum += adc;
+    acc.tbin_adc_sum += adc * static_cast<double>(tbin);
+    acc.cos_adc_sum += adc * std::cos(phi);
+    acc.sin_adc_sum += adc * std::sin(phi);
+  }
+
+  double max_layer_adc = 0.0;
+  for (const auto& acc : layer_acc)
+  {
+    if (acc.used)
+    {
+      max_layer_adc = std::max(max_layer_adc, acc.adc_sum);
+    }
+  }
+
+  p.points.reserve(p.nblobs);
+  for (unsigned int ilayer = 0; ilayer < layer_acc.size(); ++ilayer)
+  {
+    const auto& acc = layer_acc[ilayer];
+    if (!acc.used || acc.adc_sum <= 0.0)
+    {
+      continue;
+    }
+
+    PiecePoint point;
+    point.radius = acc.radius;
+    point.phi = std::atan2(acc.sin_adc_sum, acc.cos_adc_sum);
+    point.tbin = acc.tbin_adc_sum / acc.adc_sum;
+    point.weight = Tpc_FittingTools::adcWeight(acc.adc_sum,
+                                                max_layer_adc,
+                                                0.5,
+                                                0.15);
+    point.hitsetkey = acc.first_hitsetkey;
+    point.hitkey = acc.first_hitkey;
     p.points.push_back(point);
   }
 
@@ -747,15 +836,15 @@ bool Tpc_AssembledTrackReco::make_piece(unsigned int source_index, Piece& p) con
     return false;
   }
 
-  // Sort the compact objects directly. No index array and no six
-  // temporary "sorted" vectors are needed.
+  // The assembler fit now has one statistically independent centroid per
+  // layer/blob rather than one point per raw hit.  This keeps a broad blob
+  // from receiving tens of times more fit weight than a narrow blob.
   std::sort(p.points.begin(), p.points.end(),
             [](const PiecePoint& a, const PiecePoint& b)
             {
               return a.radius < b.radius;
             });
 
-  // Preserve the original sequential phi-unwrapping convention.
   for (unsigned int i = 1; i < p.points.size(); ++i)
   {
     p.points[i].phi =
@@ -767,9 +856,6 @@ bool Tpc_AssembledTrackReco::make_piece(unsigned int source_index, Piece& p) con
   int ndof_phi = 0;
   int ndof_tbin = 0;
 
-  // Keep make_piece cheap.  The linear phi/tbin fits are needed by the
-  // early matching cuts for every Piece, while the sagitta fit is only
-  // needed by Pieces that survive to exact phi matching.
   const bool fit_ok =
       fit_points(p.points,
                  false,
@@ -788,7 +874,8 @@ bool Tpc_AssembledTrackReco::make_piece(unsigned int source_index, Piece& p) con
                  ndof_phi,
                  ndof_tbin);
 
-  p.phi_sagitta_evaluated = !m_useSagittaPhiFit;
+  p.phi_sagitta_evaluated = !m_useSagittaPhiFit ||
+                            p.points.size() < m_minSagittaLayers;
   return fit_ok;
 }
 
@@ -804,7 +891,7 @@ void Tpc_AssembledTrackReco::ensure_piece_sagitta(const Piece& p) const
   p.phi_sagitta_evaluated = true;
   p.phi_sagitta_ok = false;
 
-  if (p.points.size() < 3)
+  if (p.points.size() < m_minSagittaLayers)
   {
     return;
   }
@@ -948,11 +1035,32 @@ bool Tpc_AssembledTrackReco::refit_candidate(const std::vector<Piece>& pieces,
     return false;
   }
 
+  std::vector<unsigned int> ordered_indices = piece_indices;
+  std::sort(ordered_indices.begin(), ordered_indices.end(),
+            [&pieces](unsigned int a, unsigned int b)
+            {
+              const Piece& pa = pieces[a];
+              const Piece& pb = pieces[b];
+              if (pa.first_layer != pb.first_layer)
+              {
+                return pa.first_layer < pb.first_layer;
+              }
+              if (pa.last_layer != pb.last_layer)
+              {
+                return pa.last_layer < pb.last_layer;
+              }
+              if (pa.sector != pb.sector)
+              {
+                return pa.sector < pb.sector;
+              }
+              return pa.source_track_id < pb.source_track_id;
+            });
+
   c = Candidate();
-  c.piece_indices = piece_indices;
+  c.piece_indices = ordered_indices;
 
   std::size_t total_points = 0;
-  for (unsigned int piece_index : piece_indices)
+  for (unsigned int piece_index : ordered_indices)
   {
     total_points += pieces[piece_index].points.size();
   }
@@ -960,22 +1068,14 @@ bool Tpc_AssembledTrackReco::refit_candidate(const std::vector<Piece>& pieces,
   std::vector<PiecePoint> points;
   points.reserve(total_points);
 
-  for (unsigned int ii = 0; ii < piece_indices.size(); ++ii)
+  for (unsigned int ii = 0; ii < ordered_indices.size(); ++ii)
   {
-    const Piece& p = pieces[piece_indices[ii]];
+    const Piece& p = pieces[ordered_indices[ii]];
     c.layer_mask |= p.layer_mask;
 
     for (const PiecePoint& source_point : p.points)
     {
-      PiecePoint point = source_point;
-
-      if (!points.empty())
-      {
-        point.phi =
-            unwrap_phi_to_reference(point.phi, points.back().phi);
-      }
-
-      points.push_back(point);
+      points.push_back(source_point);
     }
 
     if (ii == 0)
@@ -1010,10 +1110,28 @@ bool Tpc_AssembledTrackReco::refit_candidate(const std::vector<Piece>& pieces,
     c.nrawhits += p.nrawhits;
   }
 
-  c.nsegments = static_cast<unsigned int>(piece_indices.size());
+  if (points.size() < 2)
+  {
+    return false;
+  }
+
+  // Always fit in radial order, independent of the order in which pieces were
+  // attached.  This is essential once a long middle piece can collect a short
+  // inner piece after it has already collected an outer continuation.
+  std::sort(points.begin(), points.end(),
+            [](const PiecePoint& a, const PiecePoint& b)
+            {
+              return a.radius < b.radius;
+            });
+  for (unsigned int i = 1; i < points.size(); ++i)
+  {
+    points[i].phi = unwrap_phi_to_reference(points[i].phi, points[i - 1].phi);
+  }
+
+  c.nsegments = static_cast<unsigned int>(ordered_indices.size());
 
   return fit_points(points,
-                    m_useSagittaPhiFit,
+                    m_useSagittaPhiFit && points.size() >= m_minSagittaLayers,
                     c.phi_slope,
                     c.phi_intercept,
                     c.phi_S,
@@ -1201,16 +1319,16 @@ void Tpc_AssembledTrackReco::connect_sector_pieces(const std::vector<Piece>& pie
   std::vector<unsigned int> order;
   for (unsigned int i = 0; i < pieces.size(); ++i)
   {
-    if (pieces[i].side == side && pieces[i].sector == sector)
+    if (pieces[i].side == side && pieces[i].sector == sector &&
+        pieces[i].nblobs >= m_robustPieceMinBlobs)
     {
       order.push_back(i);
     }
   }
-  if (order.empty())
-  {
-    return;
-  }
 
+  // Only robust pieces are allowed to pre-assemble inside a sector.  Small
+  // 2/3/4-layer fragments are emitted as single candidates below and are
+  // collected later by the global long-first pass.
   std::sort(order.begin(), order.end(), PieceStartSort(&pieces));
   std::vector<uint8_t> used(pieces.size(), 0);
 
@@ -1246,9 +1364,14 @@ void Tpc_AssembledTrackReco::connect_sector_pieces(const std::vector<Piece>& pie
           continue;
         }
 
+        Candidate piece_candidate;
+        if (!refit_candidate(pieces, std::vector<unsigned int>{j}, piece_candidate))
+        {
+          continue;
+        }
+
         double score = 0.0;
-        double shifted_intercept = 0.0;
-        if (!candidates_can_connect(current, pieces[j], score, shifted_intercept))
+        if (!candidates_can_connect(current, piece_candidate, score, true, 1.0))
         {
           continue;
         }
@@ -1269,8 +1392,12 @@ void Tpc_AssembledTrackReco::connect_sector_pieces(const std::vector<Piece>& pie
         if (refit_candidate(pieces, trial_indices, refit))
         {
           const Piece& accepted_piece = pieces[static_cast<unsigned int>(best_j)];
-          const unsigned int accepted_gap = accepted_piece.first_layer - current.last_layer - 1;
-          const unsigned int qa_region = region_index(accepted_piece.region);
+          const unsigned int accepted_gap =
+              minimum_layer_mask_gap(current.layer_mask, accepted_piece.layer_mask);
+          const unsigned int qa_region = region_index(
+              current.first_layer <= accepted_piece.first_layer
+                  ? accepted_piece.region
+                  : current.first_region);
           if (m_doDebugHistograms)
           {
             std::lock_guard<std::mutex> lock(m_debugMutex);
@@ -1297,6 +1424,20 @@ void Tpc_AssembledTrackReco::connect_sector_pieces(const std::vector<Piece>& pie
     }
 
     output.push_back(current);
+  }
+
+  for (unsigned int i = 0; i < pieces.size(); ++i)
+  {
+    if (pieces[i].side != side || pieces[i].sector != sector ||
+        pieces[i].nblobs >= m_robustPieceMinBlobs)
+    {
+      continue;
+    }
+    Candidate single;
+    if (refit_candidate(pieces, std::vector<unsigned int>{i}, single))
+    {
+      output.push_back(std::move(single));
+    }
   }
 }
 
@@ -1373,16 +1514,16 @@ void Tpc_AssembledTrackReco::connect_sector_pieces_fast(const std::vector<Piece>
   std::vector<unsigned int> order;
   for (unsigned int i = 0; i < pieces.size(); ++i)
   {
-    if (pieces[i].side == side && pieces[i].sector == sector)
+    if (pieces[i].side == side && pieces[i].sector == sector &&
+        pieces[i].nblobs >= m_robustPieceMinBlobs)
     {
       order.push_back(i);
     }
   }
-  if (order.empty())
-  {
-    return;
-  }
 
+  // Only robust pieces are allowed to pre-assemble inside a sector.  Small
+  // 2/3/4-layer fragments are emitted as single candidates below and are
+  // collected later by the global long-first pass.
   std::sort(order.begin(), order.end(), PieceStartSort(&pieces));
   std::vector<uint8_t> used(pieces.size(), 0);
 
@@ -1412,7 +1553,8 @@ void Tpc_AssembledTrackReco::connect_sector_pieces_fast(const std::vector<Piece>
       for (unsigned int j = 0; j < pieces.size(); ++j)
       {
         const Piece& candidate_piece = pieces[j];
-        if (candidate_piece.side != side)
+        if (candidate_piece.side != side ||
+            candidate_piece.nblobs < m_robustPieceMinBlobs)
         {
           continue;
         }
@@ -1456,6 +1598,15 @@ void Tpc_AssembledTrackReco::connect_sector_pieces_fast(const std::vector<Piece>
         break;
       }
 
+      Candidate accepted_candidate;
+      double exact_score = 0.0;
+      if (!refit_candidate(pieces, std::vector<unsigned int>{accepted_index}, accepted_candidate) ||
+          !candidates_can_connect(current, accepted_candidate, exact_score, true, 1.0))
+      {
+        break;
+      }
+      unique_score = exact_score;
+
       std::vector<unsigned int> trial_indices = current_indices;
       trial_indices.push_back(accepted_index);
       Candidate refit;
@@ -1484,6 +1635,20 @@ void Tpc_AssembledTrackReco::connect_sector_pieces_fast(const std::vector<Piece>
 
     output.push_back(std::move(current));
   }
+
+  for (unsigned int i = 0; i < pieces.size(); ++i)
+  {
+    if (pieces[i].side != side || pieces[i].sector != sector ||
+        pieces[i].nblobs >= m_robustPieceMinBlobs)
+    {
+      continue;
+    }
+    Candidate single;
+    if (refit_candidate(pieces, std::vector<unsigned int>{i}, single))
+    {
+      output.push_back(std::move(single));
+    }
+  }
 }
 
 bool Tpc_AssembledTrackReco::cheap_candidate_relation(const Candidate& a,
@@ -1498,67 +1663,161 @@ bool Tpc_AssembledTrackReco::cheap_candidate_relation(const Candidate& a,
   tight = false;
   score = std::numeric_limits<double>::max();
 
-  const unsigned int region = region_index(b.first_region);
-
-  if (a.side != b.side || a.last_layer >= b.first_layer)
+  if (a.side != b.side)
   {
     return false;
   }
-  if (!allow_same_sector && a.last_sector == b.first_sector)
+  const bool same_single_sector =
+      a.first_sector == a.last_sector &&
+      b.first_sector == b.last_sector &&
+      a.first_sector == b.first_sector;
+  if (!allow_same_sector && same_single_sector)
   {
     return false;
   }
 
-  const unsigned int gap = b.first_layer - a.last_layer - 1;
+  const unsigned int gap = minimum_layer_mask_gap(a.layer_mask, b.layer_mask);
+  if (gap == std::numeric_limits<unsigned int>::max())
+  {
+    return false;
+  }
+
+  const unsigned int region = region_index(
+      a.first_layer <= b.first_layer ? b.first_region : a.first_region);
   if (gap > m_connectMaxLayerGap[region])
   {
     return false;
   }
 
-  const double ra = m_idealPadMap->get_radius(a.last_layer);
-  const double rb = m_idealPadMap->get_radius(b.first_layer);
-  if (!std::isfinite(ra) || !std::isfinite(rb) || ra <= 0.0 || rb <= 0.0)
+  const double rel_a = piece_reliability(a.nblobs);
+  const double rel_b = piece_reliability(b.nblobs);
+  const double slope_rel = std::min(rel_a, rel_b);
+
+  auto phi_linear = [](const Candidate& c, double r)
   {
-    return false;
+    return c.phi_slope * r + c.phi_intercept;
+  };
+  auto tbin_at = [](const Candidate& c, double r)
+  {
+    return c.tbin_slope_r * r + c.tbin_intercept_r;
+  };
+
+  double dphi0 = 0.0;
+  double dt0 = 0.0;
+  double dphi1 = 0.0;
+  double dt1 = 0.0;
+  double w0 = 1.0;
+  double w1 = 1.0;
+  double cut_scale0 = 1.0;
+  double cut_scale1 = 1.0;
+
+  if (a.last_layer < b.first_layer || b.last_layer < a.first_layer)
+  {
+    const Candidate& inner = a.last_layer < b.first_layer ? a : b;
+    const Candidate& outer = a.last_layer < b.first_layer ? b : a;
+    const double rel_inner = a.last_layer < b.first_layer ? rel_a : rel_b;
+    const double rel_outer = a.last_layer < b.first_layer ? rel_b : rel_a;
+
+    const double r_outer = m_idealPadMap->get_radius(outer.first_layer);
+    const double r_inner = m_idealPadMap->get_radius(inner.last_layer);
+    if (!std::isfinite(r_outer) || !std::isfinite(r_inner) ||
+        r_outer <= 0.0 || r_inner <= 0.0)
+    {
+      return false;
+    }
+
+    const double phi_inner_outer = phi_linear(inner, r_outer);
+    const double phi_outer_outer =
+        unwrap_phi_to_reference(phi_linear(outer, r_outer), phi_inner_outer);
+    const double phi_inner_inner = phi_linear(inner, r_inner);
+    const double phi_outer_inner =
+        unwrap_phi_to_reference(phi_linear(outer, r_inner), phi_inner_inner);
+
+    dphi0 = std::fabs(phi_inner_outer - phi_outer_outer);
+    dt0 = std::fabs(tbin_at(inner, r_outer) - tbin_at(outer, r_outer));
+    dphi1 = std::fabs(phi_inner_inner - phi_outer_inner);
+    dt1 = std::fabs(tbin_at(inner, r_inner) - tbin_at(outer, r_inner));
+    w0 = rel_inner;
+    w1 = rel_outer;
+
+    if (rel_inner >= rel_outer)
+    {
+      cut_scale1 = 1.0 + 1.5 * (1.0 - rel_outer);
+    }
+    else
+    {
+      cut_scale0 = 1.0 + 1.5 * (1.0 - rel_inner);
+    }
   }
-  const double rmatch = 0.5 * (ra + rb);
+  else
+  {
+    // A fragment can sit inside a radial gap of an already assembled long
+    // candidate.  Use the more reliable candidate as the road and test the
+    // fragment at both of its measured edges.
+    const Candidate& reference =
+        (a.nblobs > b.nblobs ||
+         (a.nblobs == b.nblobs &&
+          (a.last_layer - a.first_layer) >= (b.last_layer - b.first_layer)))
+            ? a
+            : b;
+    const Candidate& fragment = &reference == &a ? b : a;
+    const double r0 = m_idealPadMap->get_radius(fragment.first_layer);
+    const double r1 = m_idealPadMap->get_radius(fragment.last_layer);
+    if (!std::isfinite(r0) || !std::isfinite(r1) || r0 <= 0.0 || r1 <= 0.0)
+    {
+      return false;
+    }
 
-  const double tbin_a = a.tbin_slope_r * rmatch + a.tbin_intercept_r;
-  const double tbin_b = b.tbin_slope_r * rmatch + b.tbin_intercept_r;
-  const double dtbin = std::fabs(tbin_a - tbin_b);
+    const double phi_ref0 = phi_linear(reference, r0);
+    const double phi_frag0 = unwrap_phi_to_reference(phi_linear(fragment, r0), phi_ref0);
+    const double phi_ref1 = phi_linear(reference, r1);
+    const double phi_frag1 = unwrap_phi_to_reference(phi_linear(fragment, r1), phi_ref1);
+    dphi0 = std::fabs(phi_ref0 - phi_frag0);
+    dt0 = std::fabs(tbin_at(reference, r0) - tbin_at(fragment, r0));
+    dphi1 = std::fabs(phi_ref1 - phi_frag1);
+    dt1 = std::fabs(tbin_at(reference, r1) - tbin_at(fragment, r1));
+    w0 = w1 = piece_reliability(reference.nblobs);
+    cut_scale0 = cut_scale1 = 1.25;
+  }
+
+  const double dmphi = std::fabs(a.phi_slope - b.phi_slope);
   const double dmtbin = std::fabs(a.tbin_slope_r - b.tbin_slope_r);
+  const double slope_cut_scale = 1.0 / std::max(slope_rel, 0.35);
+  const double phi_pre_scale = m_linearPhiPrecutScale > 0.0
+                                   ? m_linearPhiPrecutScale
+                                   : 1.0;
 
-  const double phi_a_linear = a.phi_slope * rmatch + a.phi_intercept;
-  const double phi_b_linear_raw = b.phi_slope * rmatch + b.phi_intercept;
-  const double phi_b_linear = unwrap_phi_to_reference(phi_b_linear_raw, phi_a_linear);
-  const double dphi_linear = std::fabs(phi_a_linear - phi_b_linear);
-  const double dmphi_linear = std::fabs(a.phi_slope - b.phi_slope);
+  const bool phi_broad = m_linearPhiPrecutScale <= 0.0 ||
+      (dphi0 <= window_scale * phi_pre_scale * cut_scale0 * m_connect_dphi[region] &&
+       dphi1 <= window_scale * phi_pre_scale * cut_scale1 * m_connect_dphi[region] &&
+       dmphi <= window_scale * phi_pre_scale * slope_cut_scale * m_connect_dphi_slope[region]);
 
-  const bool linear_broad = m_linearPhiPrecutScale <= 0.0 ||
-                            (dphi_linear <= window_scale * m_linearPhiPrecutScale * m_connect_dphi[region] &&
-                             dmphi_linear <= window_scale * m_linearPhiPrecutScale * m_connect_dphi_slope[region]);
-  broad = dtbin <= window_scale * m_connect_dtbin[region] &&
-          dmtbin <= window_scale * m_connect_dtbin_slope[region] &&
-          linear_broad;
-
+  broad = phi_broad &&
+          dt0 <= window_scale * cut_scale0 * m_connect_dtbin[region] &&
+          dt1 <= window_scale * cut_scale1 * m_connect_dtbin[region] &&
+          dmtbin <= window_scale * slope_cut_scale * m_connect_dtbin_slope[region];
   if (!broad)
   {
     return true;
   }
 
-  tight = dtbin <= window_scale * m_normalTightScale * m_connect_dtbin[region] &&
-          dmtbin <= window_scale * m_normalTightScale * m_connect_dtbin_slope[region] &&
-          dphi_linear <= window_scale * m_normalTightScale * m_connect_dphi[region] &&
-          dmphi_linear <= window_scale * m_normalTightScale * m_connect_dphi_slope[region];
+  const double wsum = std::max(w0 + w1, 1.0e-9);
+  const double eff_dphi = std::sqrt((w0 * dphi0 * dphi0 + w1 * dphi1 * dphi1) / wsum);
+  const double eff_dt = std::sqrt((w0 * dt0 * dt0 + w1 * dt1 * dt1) / wsum);
 
-  const double phi_scale = m_linearPhiPrecutScale > 0.0
-                               ? m_linearPhiPrecutScale
-                               : 1.0;
-  score = sqr(dphi_linear / std::max(window_scale * phi_scale * m_connect_dphi[region], 1.0e-9)) +
-          sqr(dtbin / std::max(window_scale * m_connect_dtbin[region], 1.0e-9)) +
-          sqr(dmphi_linear / std::max(window_scale * phi_scale * m_connect_dphi_slope[region], 1.0e-9)) +
-          sqr(dmtbin / std::max(window_scale * m_connect_dtbin_slope[region], 1.0e-9)) +
-          0.05 * static_cast<double>(gap);
+  tight = eff_dphi <= window_scale * m_normalTightScale * m_connect_dphi[region] &&
+          eff_dt <= window_scale * m_normalTightScale * m_connect_dtbin[region] &&
+          dmphi <= window_scale * m_normalTightScale * slope_cut_scale * m_connect_dphi_slope[region] &&
+          dmtbin <= window_scale * m_normalTightScale * slope_cut_scale * m_connect_dtbin_slope[region];
+
+  score =
+      m_weight_phi[region] * sqr(eff_dphi / std::max(window_scale * m_score_dphi[region], 1.0e-9)) +
+      m_weight_tbin[region] * sqr(eff_dt / std::max(window_scale * m_score_dtbin[region], 1.0e-9)) +
+      slope_rel * m_weight_phi_slope[region] *
+          sqr(dmphi / std::max(window_scale * m_score_dphi_slope[region], 1.0e-9)) +
+      slope_rel * m_weight_tbin_slope[region] *
+          sqr(dmtbin / std::max(window_scale * m_score_dtbin_slope[region], 1.0e-9)) +
+      0.05 * static_cast<double>(gap);
   return true;
 }
 
@@ -1570,8 +1829,6 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
 {
   score = std::numeric_limits<double>::max();
 
-  const unsigned int region = region_index(b.first_region);
-
   bool broad = false;
   bool tight = false;
   double cheap_score = 0.0;
@@ -1581,62 +1838,155 @@ bool Tpc_AssembledTrackReco::candidates_can_connect(const Candidate& a,
     return false;
   }
 
-  const double ra = m_idealPadMap->get_radius(a.last_layer);
-  const double rb = m_idealPadMap->get_radius(b.first_layer);
-  const double rmatch = 0.5 * (ra + rb);
+  const unsigned int gap = minimum_layer_mask_gap(a.layer_mask, b.layer_mask);
+  if (gap == std::numeric_limits<unsigned int>::max())
+  {
+    return false;
+  }
+  const unsigned int region = region_index(
+      a.first_layer <= b.first_layer ? b.first_region : a.first_region);
 
-  const double tbin_a = a.tbin_slope_r * rmatch + a.tbin_intercept_r;
-  const double tbin_b = b.tbin_slope_r * rmatch + b.tbin_intercept_r;
-  const double dtbin = std::fabs(tbin_a - tbin_b);
+  const double rel_a = piece_reliability(a.nblobs);
+  const double rel_b = piece_reliability(b.nblobs);
+  const double slope_rel = std::min(rel_a, rel_b);
+
+  auto tbin_at = [](const Candidate& c, double r)
+  {
+    return c.tbin_slope_r * r + c.tbin_intercept_r;
+  };
+
+  double dphi0 = 0.0;
+  double dt0 = 0.0;
+  double dphi1 = 0.0;
+  double dt1 = 0.0;
+  double w0 = 1.0;
+  double w1 = 1.0;
+  double cut_scale0 = 1.0;
+  double cut_scale1 = 1.0;
+  double dmphi = 0.0;
+
+  if (a.last_layer < b.first_layer || b.last_layer < a.first_layer)
+  {
+    const Candidate& inner = a.last_layer < b.first_layer ? a : b;
+    const Candidate& outer = a.last_layer < b.first_layer ? b : a;
+    const double rel_inner = a.last_layer < b.first_layer ? rel_a : rel_b;
+    const double rel_outer = a.last_layer < b.first_layer ? rel_b : rel_a;
+
+    const double r_outer = m_idealPadMap->get_radius(outer.first_layer);
+    const double r_inner = m_idealPadMap->get_radius(inner.last_layer);
+    if (!std::isfinite(r_outer) || !std::isfinite(r_inner) ||
+        r_outer <= 0.0 || r_inner <= 0.0)
+    {
+      return false;
+    }
+
+    const auto inner_at_outer = predict_phi_and_slope(inner, r_outer);
+    const auto outer_at_outer_raw = predict_phi_and_slope(outer, r_outer);
+    const double outer_phi_outer =
+        unwrap_phi_to_reference(outer_at_outer_raw.first, inner_at_outer.first);
+    const auto inner_at_inner = predict_phi_and_slope(inner, r_inner);
+    const auto outer_at_inner_raw = predict_phi_and_slope(outer, r_inner);
+    const double outer_phi_inner =
+        unwrap_phi_to_reference(outer_at_inner_raw.first, inner_at_inner.first);
+
+    dphi0 = std::fabs(inner_at_outer.first - outer_phi_outer);
+    dt0 = std::fabs(tbin_at(inner, r_outer) - tbin_at(outer, r_outer));
+    dphi1 = std::fabs(inner_at_inner.first - outer_phi_inner);
+    dt1 = std::fabs(tbin_at(inner, r_inner) - tbin_at(outer, r_inner));
+    dmphi = 0.5 * (std::fabs(inner_at_outer.second - outer_at_outer_raw.second) +
+                   std::fabs(inner_at_inner.second - outer_at_inner_raw.second));
+    w0 = rel_inner;
+    w1 = rel_outer;
+
+    if (rel_inner >= rel_outer)
+    {
+      cut_scale1 = 1.0 + 1.5 * (1.0 - rel_outer);
+    }
+    else
+    {
+      cut_scale0 = 1.0 + 1.5 * (1.0 - rel_inner);
+    }
+  }
+  else
+  {
+    const Candidate& reference =
+        (a.nblobs > b.nblobs ||
+         (a.nblobs == b.nblobs &&
+          (a.last_layer - a.first_layer) >= (b.last_layer - b.first_layer)))
+            ? a
+            : b;
+    const Candidate& fragment = &reference == &a ? b : a;
+    const double r0 = m_idealPadMap->get_radius(fragment.first_layer);
+    const double r1 = m_idealPadMap->get_radius(fragment.last_layer);
+    if (!std::isfinite(r0) || !std::isfinite(r1) || r0 <= 0.0 || r1 <= 0.0)
+    {
+      return false;
+    }
+
+    const auto ref0 = predict_phi_and_slope(reference, r0);
+    const auto frag0raw = predict_phi_and_slope(fragment, r0);
+    const double fragphi0 = unwrap_phi_to_reference(frag0raw.first, ref0.first);
+    const auto ref1 = predict_phi_and_slope(reference, r1);
+    const auto frag1raw = predict_phi_and_slope(fragment, r1);
+    const double fragphi1 = unwrap_phi_to_reference(frag1raw.first, ref1.first);
+    dphi0 = std::fabs(ref0.first - fragphi0);
+    dt0 = std::fabs(tbin_at(reference, r0) - tbin_at(fragment, r0));
+    dphi1 = std::fabs(ref1.first - fragphi1);
+    dt1 = std::fabs(tbin_at(reference, r1) - tbin_at(fragment, r1));
+    dmphi = 0.5 * (std::fabs(ref0.second - frag0raw.second) +
+                   std::fabs(ref1.second - frag1raw.second));
+    w0 = w1 = piece_reliability(reference.nblobs);
+    cut_scale0 = cut_scale1 = 1.25;
+  }
+
   const double dmtbin = std::fabs(a.tbin_slope_r - b.tbin_slope_r);
-
-  const auto phi_a_pair = predict_phi_and_slope(a, rmatch);
-  const auto phi_b_pair_raw = predict_phi_and_slope(b, rmatch);
-  const double phi_b = unwrap_phi_to_reference(phi_b_pair_raw.first, phi_a_pair.first);
-  const double dphi = std::fabs(phi_a_pair.first - phi_b);
-  const double dmphi = std::fabs(phi_a_pair.second - phi_b_pair_raw.second);
-
-  if (dphi > window_scale * m_connect_dphi[region] ||
-      dmphi > window_scale * m_connect_dphi_slope[region] ||
-      dtbin > window_scale * m_connect_dtbin[region] ||
-      dmtbin > window_scale * m_connect_dtbin_slope[region])
+  const double slope_cut_scale = 1.0 / std::max(slope_rel, 0.35);
+  if (dphi0 > window_scale * cut_scale0 * m_connect_dphi[region] ||
+      dt0 > window_scale * cut_scale0 * m_connect_dtbin[region] ||
+      dphi1 > window_scale * cut_scale1 * m_connect_dphi[region] ||
+      dt1 > window_scale * cut_scale1 * m_connect_dtbin[region] ||
+      dmphi > window_scale * slope_cut_scale * m_connect_dphi_slope[region] ||
+      dmtbin > window_scale * slope_cut_scale * m_connect_dtbin_slope[region])
   {
     return false;
   }
 
+  const double wsum = std::max(w0 + w1, 1.0e-9);
+  const double eff_dphi = std::sqrt((w0 * dphi0 * dphi0 + w1 * dphi1 * dphi1) / wsum);
+  const double eff_dt = std::sqrt((w0 * dt0 * dt0 + w1 * dt1 * dt1) / wsum);
+
   if (m_doDebugHistograms)
   {
     std::lock_guard<std::mutex> lock(m_debugMutex);
-    if (m_h_dphi[region]) m_h_dphi[region]->Fill(dphi);
-    if (m_h_dtbin[region]) m_h_dtbin[region]->Fill(dtbin);
+    if (m_h_dphi[region]) m_h_dphi[region]->Fill(eff_dphi);
+    if (m_h_dtbin[region]) m_h_dtbin[region]->Fill(eff_dt);
     if (m_h_dmphi[region]) m_h_dmphi[region]->Fill(dmphi);
     if (m_h_dmtbin[region]) m_h_dmtbin[region]->Fill(dmtbin);
-    if (m_h_dphi_vs_dtbin[region]) m_h_dphi_vs_dtbin[region]->Fill(dphi, dtbin);
+    if (m_h_dphi_vs_dtbin[region]) m_h_dphi_vs_dtbin[region]->Fill(eff_dphi, eff_dt);
     if (m_h_dmphi_vs_dmtbin[region]) m_h_dmphi_vs_dmtbin[region]->Fill(dmphi, dmtbin);
-    if (m_h_dphi_vs_dmphi[region]) m_h_dphi_vs_dmphi[region]->Fill(dphi, dmphi);
-    if (m_h_tbin_slope_vs_last_tbin[region])
+    if (m_h_dphi_vs_dmphi[region]) m_h_dphi_vs_dmphi[region]->Fill(eff_dphi, dmphi);
+
+    const double ra_last = m_idealPadMap->get_radius(a.last_layer);
+    const double rb_first = m_idealPadMap->get_radius(b.first_layer);
+    if (m_h_tbin_slope_vs_last_tbin[region] && std::isfinite(ra_last))
     {
-      m_h_tbin_slope_vs_last_tbin[region]->Fill(a.tbin_slope_r * ra + a.tbin_intercept_r,
-                                        a.tbin_slope_r);
+      m_h_tbin_slope_vs_last_tbin[region]->Fill(
+          a.tbin_slope_r * ra_last + a.tbin_intercept_r, a.tbin_slope_r);
     }
-    if (m_h_tbin_slope_vs_first_tbin[region])
+    if (m_h_tbin_slope_vs_first_tbin[region] && std::isfinite(rb_first))
     {
-      m_h_tbin_slope_vs_first_tbin[region]->Fill(b.tbin_slope_r * rb + b.tbin_intercept_r,
-                                         b.tbin_slope_r);
+      m_h_tbin_slope_vs_first_tbin[region]->Fill(
+          b.tbin_slope_r * rb_first + b.tbin_intercept_r, b.tbin_slope_r);
     }
   }
 
-  constexpr double w_phi = 1.0;
-  constexpr double w_mphi = 1.0;
-  constexpr double w_tbin = 1.0;
-  constexpr double w_mtbin = 2.0;
-  const unsigned int gap = b.first_layer - a.last_layer - 1;
-
   score =
-      w_phi * sqr(dphi / std::max(window_scale * m_connect_dphi[region], 1.0e-9)) +
-      w_tbin * sqr(dtbin / std::max(window_scale * m_connect_dtbin[region], 1.0e-9)) +
-      w_mphi * sqr(dmphi / std::max(window_scale * m_connect_dphi_slope[region], 1.0e-9)) +
-      w_mtbin * sqr(dmtbin / std::max(window_scale * m_connect_dtbin_slope[region], 1.0e-9)) +
+      m_weight_phi[region] * sqr(eff_dphi / std::max(window_scale * m_score_dphi[region], 1.0e-9)) +
+      m_weight_tbin[region] * sqr(eff_dt / std::max(window_scale * m_score_dtbin[region], 1.0e-9)) +
+      slope_rel * m_weight_phi_slope[region] *
+          sqr(dmphi / std::max(window_scale * m_score_dphi_slope[region], 1.0e-9)) +
+      slope_rel * m_weight_tbin_slope[region] *
+          sqr(dmtbin / std::max(window_scale * m_score_dtbin_slope[region], 1.0e-9)) +
       0.05 * static_cast<double>(gap);
 
   return true;
@@ -1687,16 +2037,37 @@ void Tpc_AssembledTrackReco::connect_side_candidates(const std::vector<Piece>& p
       int best_j = -1;
       double best_score = std::numeric_limits<double>::max();
 
-      if (enable_unique_tight)
+      // First connect established/robust candidates to one another.  Only
+      // after no >=m_robustPieceMinBlobs continuation survives do we let the
+      // current track collect short dead-layer fragments.
+      for (unsigned int j : order)
+      {
+        if (used[j] || seeds[j].nblobs < m_robustPieceMinBlobs)
+        {
+          continue;
+        }
+        double score = 0.0;
+        if (!candidates_can_connect(current, seeds[j], score,
+                                    allow_same_sector, window_scale))
+        {
+          continue;
+        }
+        if (score < best_score)
+        {
+          best_score = score;
+          best_j = static_cast<int>(j);
+        }
+      }
+
+      if (best_j < 0 && enable_unique_tight)
       {
         unsigned int broad_count = 0;
         int unique_j = -1;
         bool unique_tight = false;
-        double unique_score = std::numeric_limits<double>::max();
 
         for (unsigned int j : order)
         {
-          if (used[j])
+          if (used[j] || seeds[j].nblobs >= m_robustPieceMinBlobs)
           {
             continue;
           }
@@ -1714,14 +2085,22 @@ void Tpc_AssembledTrackReco::connect_side_candidates(const std::vector<Piece>& p
           {
             unique_j = static_cast<int>(j);
             unique_tight = tight;
-            unique_score = cheap_score;
           }
         }
 
         if (broad_count == 1 && unique_j >= 0 && unique_tight)
         {
-          best_j = unique_j;
-          best_score = unique_score;
+          // Cheap matching is only a preselection.  Every accepted connection
+          // gets the same exact score definition so h_score and reassociation
+          // are directly comparable.
+          double exact_score = 0.0;
+          if (candidates_can_connect(current,
+                                     seeds[static_cast<unsigned int>(unique_j)],
+                                     exact_score, allow_same_sector, window_scale))
+          {
+            best_j = unique_j;
+            best_score = exact_score;
+          }
         }
       }
 
@@ -1732,7 +2111,7 @@ void Tpc_AssembledTrackReco::connect_side_candidates(const std::vector<Piece>& p
       {
         for (unsigned int j : order)
         {
-          if (used[j])
+          if (used[j] || seeds[j].nblobs >= m_robustPieceMinBlobs)
           {
             continue;
           }
@@ -1769,8 +2148,12 @@ void Tpc_AssembledTrackReco::connect_side_candidates(const std::vector<Piece>& p
         break;
       }
 
-      const unsigned int accepted_gap = accepted_seed.first_layer - current.last_layer - 1;
-      const unsigned int qa_region = region_index(accepted_seed.first_region);
+      const unsigned int accepted_gap =
+          minimum_layer_mask_gap(current.layer_mask, accepted_seed.layer_mask);
+      const unsigned int qa_region = region_index(
+          current.first_layer <= accepted_seed.first_layer
+              ? accepted_seed.first_region
+              : current.first_region);
       if (m_doDebugHistograms)
       {
         std::lock_guard<std::mutex> lock(m_debugMutex);
@@ -1843,8 +2226,14 @@ void Tpc_AssembledTrackReco::rescue_side_candidates(const std::vector<Piece>& pi
         }
 
         const Candidate& candidate = seeds[j];
-        // Protect established long candidates from being greedily merged with
-        // one another. Long+short and short+short remain eligible.
+        // Rescue is intentionally a small-fragment stage.  Robust+robust
+        // connections must have been decided by the normal exact pass; do not
+        // join two established tracks merely because the rescue window is wider.
+        if (current.nblobs >= m_robustPieceMinBlobs &&
+            candidate.nblobs >= m_robustPieceMinBlobs)
+        {
+          continue;
+        }
         if (current.nsegments > m_rescueMaxSegments &&
             candidate.nsegments > m_rescueMaxSegments)
         {
@@ -1885,6 +2274,143 @@ void Tpc_AssembledTrackReco::rescue_side_candidates(const std::vector<Piece>& pi
     }
 
     output.push_back(std::move(current));
+  }
+}
+
+void Tpc_AssembledTrackReco::final_reassociate(const std::vector<Piece>& pieces,
+                                                  int side,
+                                                  std::vector<Candidate>& tracks) const
+{
+  if (!m_enableFinalReassociation || m_finalReassociationIterations == 0 ||
+      tracks.size() < 2)
+  {
+    return;
+  }
+
+  for (unsigned int iter = 0; iter < m_finalReassociationIterations; ++iter)
+  {
+    std::vector<int> owner(pieces.size(), -1);
+    for (unsigned int it = 0; it < tracks.size(); ++it)
+    {
+      if (tracks[it].side != side) continue;
+      for (unsigned int ip : tracks[it].piece_indices)
+      {
+        if (ip < owner.size()) owner[ip] = static_cast<int>(it);
+      }
+    }
+
+    bool found = false;
+    unsigned int best_piece = 0;
+    unsigned int best_donor = 0;
+    unsigned int best_target = 0;
+    double best_ratio = std::numeric_limits<double>::max();
+    double best_target_score = std::numeric_limits<double>::max();
+
+    for (unsigned int ip = 0; ip < pieces.size(); ++ip)
+    {
+      const int donor_i = owner[ip];
+      if (donor_i < 0 || pieces[ip].side != side)
+      {
+        continue;
+      }
+      const unsigned int donor = static_cast<unsigned int>(donor_i);
+      if (tracks[donor].piece_indices.size() <= 1U)
+      {
+        continue;
+      }
+
+      Candidate single;
+      if (!refit_candidate(pieces, std::vector<unsigned int>{ip}, single))
+      {
+        continue;
+      }
+
+      std::vector<unsigned int> donor_indices;
+      donor_indices.reserve(tracks[donor].piece_indices.size() - 1U);
+      for (unsigned int old_ip : tracks[donor].piece_indices)
+      {
+        if (old_ip != ip) donor_indices.push_back(old_ip);
+      }
+      Candidate donor_without;
+      if (!refit_candidate(pieces, donor_indices, donor_without))
+      {
+        continue;
+      }
+
+      double donor_score = std::numeric_limits<double>::max();
+      const bool donor_relation_ok =
+          candidates_can_connect(donor_without, single, donor_score, true, 1.0);
+
+      for (unsigned int target = 0; target < tracks.size(); ++target)
+      {
+        if (target == donor || tracks[target].side != side)
+        {
+          continue;
+        }
+
+        double target_score = 0.0;
+        if (!candidates_can_connect(tracks[target], single,
+                                    target_score, true, 1.0))
+        {
+          continue;
+        }
+
+        if (donor_relation_ok)
+        {
+          if (!(target_score < m_finalReassociationImprovementRatio * donor_score))
+          {
+            continue;
+          }
+        }
+
+        std::vector<unsigned int> target_indices = tracks[target].piece_indices;
+        target_indices.push_back(ip);
+        Candidate target_with;
+        if (!refit_candidate(pieces, target_indices, target_with))
+        {
+          continue;
+        }
+
+        const double ratio = donor_relation_ok
+                                 ? target_score / std::max(donor_score, 1.0e-12)
+                                 : 0.0;
+        if (!found || ratio < best_ratio ||
+            (std::fabs(ratio - best_ratio) < 1.0e-12 &&
+             target_score < best_target_score))
+        {
+          found = true;
+          best_piece = ip;
+          best_donor = donor;
+          best_target = target;
+          best_ratio = ratio;
+          best_target_score = target_score;
+        }
+      }
+    }
+
+    if (!found)
+    {
+      break;
+    }
+
+    std::vector<unsigned int> donor_indices;
+    for (unsigned int ip : tracks[best_donor].piece_indices)
+    {
+      if (ip != best_piece) donor_indices.push_back(ip);
+    }
+    std::vector<unsigned int> target_indices = tracks[best_target].piece_indices;
+    target_indices.push_back(best_piece);
+
+    Candidate donor_refit;
+    Candidate target_refit;
+    if (!refit_candidate(pieces, donor_indices, donor_refit) ||
+        !refit_candidate(pieces, target_indices, target_refit))
+    {
+      break;
+    }
+
+    tracks[best_donor] = std::move(donor_refit);
+    tracks[best_target] = std::move(target_refit);
   }
 }
 
@@ -2009,7 +2535,9 @@ int Tpc_AssembledTrackReco::process_event(PHCompositeNode* /*unused*/)
   }
 
   std::vector<Candidate> assembled_tracks;
-  const bool allow_same_sector_global = m_enableFastSameSectorPass;
+  // Short fragments are intentionally left out of the sector pre-pass, so
+  // same-sector connections must remain available globally.
+  const bool allow_same_sector_global = true;
   connect_side_candidates(pieces, sector_tracks, 0, assembled_tracks,
                           allow_same_sector_global, 1.0,
                           m_enableNormalUniqueTight);
@@ -2030,6 +2558,12 @@ int Tpc_AssembledTrackReco::process_event(PHCompositeNode* /*unused*/)
       rescue_side_candidates(pieces, assembled_tracks, 1, scale, rescued);
       assembled_tracks.swap(rescued);
     }
+  }
+
+  if (m_enableFinalReassociation && !assembled_tracks.empty())
+  {
+    final_reassociate(pieces, 0, assembled_tracks);
+    final_reassociate(pieces, 1, assembled_tracks);
   }
 
   for (unsigned int it = 0; it < assembled_tracks.size(); ++it)
@@ -2141,14 +2675,14 @@ int Tpc_AssembledTrackReco::process_event(PHCompositeNode* /*unused*/)
     {
       const Piece& p = pieces[piece_index];
 
-      for (const PiecePoint& point : p.points)
+      for (const auto& hit_index : p.hit_indices)
       {
-        out->add_hit_index(point.hitsetkey, point.hitkey);
+        out->add_hit_index(hit_index.first, hit_index.second);
         m_tree_hit_assembled_track_id.push_back(assembled_id);
         m_tree_hit_hitsetkey.push_back(
-            static_cast<unsigned long long>(point.hitsetkey));
+            static_cast<unsigned long long>(hit_index.first));
         m_tree_hit_hitkey.push_back(
-            static_cast<unsigned long long>(point.hitkey));
+            static_cast<unsigned long long>(hit_index.second));
       }
     }
 

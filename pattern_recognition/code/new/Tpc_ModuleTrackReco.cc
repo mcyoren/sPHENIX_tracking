@@ -234,15 +234,32 @@ namespace
     {
       const InModuleThreadData::Track& ta = (*tracks)[a];
       const InModuleThreadData::Track& tb = (*tracks)[b];
+
+      // Build the most reliable objects first.  Short fragments are left for
+      // the already-established long tracks to collect later.
+      if (ta.nblobs != tb.nblobs)
+      {
+        return ta.nblobs > tb.nblobs;
+      }
+      const unsigned int span_a = ta.last_layer >= ta.first_layer
+                                      ? ta.last_layer - ta.first_layer + 1U
+                                      : 0U;
+      const unsigned int span_b = tb.last_layer >= tb.first_layer
+                                      ? tb.last_layer - tb.first_layer + 1U
+                                      : 0U;
+      if (span_a != span_b)
+      {
+        return span_a > span_b;
+      }
+      if (ta.nrawhits != tb.nrawhits)
+      {
+        return ta.nrawhits > tb.nrawhits;
+      }
       if (ta.first_layer != tb.first_layer)
       {
         return ta.first_layer < tb.first_layer;
       }
-      if (ta.last_layer != tb.last_layer)
-      {
-        return ta.last_layer < tb.last_layer;
-      }
-      return ta.nrawhits > tb.nrawhits;
+      return a < b;
     }
   };
 
@@ -258,54 +275,319 @@ namespace
     }
   }
 
-  bool tracks_can_connect(const InModuleThreadData::Track& a,
+  double track_reliability(unsigned int nblobs)
+  {
+    // Two-point fragments are useful, but their slope is not nearly as
+    // reliable as an 8+ layer tracklet.  This factor is used only for
+    // matching/scoring; it does not veto short pieces.
+    if (nblobs >= 8U)
+    {
+      return 1.0;
+    }
+    if (nblobs <= 1U)
+    {
+      return 0.25;
+    }
+    return std::max(0.25, static_cast<double>(nblobs - 1U) / 7.0);
+  }
+
+  bool tracks_share_layer(const InModuleThreadData* d,
+                          const InModuleThreadData::Track& a,
+                          const InModuleThreadData::Track& b)
+  {
+    for (unsigned int ia : a.blob_indices)
+    {
+      if (ia >= d->blobs.size()) continue;
+      const unsigned int la = d->blobs[ia].layer;
+      for (unsigned int ib : b.blob_indices)
+      {
+        if (ib >= d->blobs.size()) continue;
+        if (la == d->blobs[ib].layer)
+        {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  unsigned int minimum_track_layer_gap(const InModuleThreadData* d,
+                                       const InModuleThreadData::Track& a,
+                                       const InModuleThreadData::Track& b)
+  {
+    unsigned int best = std::numeric_limits<unsigned int>::max();
+    for (unsigned int ia : a.blob_indices)
+    {
+      if (ia >= d->blobs.size()) continue;
+      const int la = static_cast<int>(d->blobs[ia].layer);
+      for (unsigned int ib : b.blob_indices)
+      {
+        if (ib >= d->blobs.size()) continue;
+        const int lb = static_cast<int>(d->blobs[ib].layer);
+        const unsigned int gap = static_cast<unsigned int>(std::max(0, std::abs(la - lb) - 1));
+        best = std::min(best, gap);
+      }
+    }
+    return best;
+  }
+
+  double track_blob_residual_score(const InModuleThreadData* d,
+                                   const InModuleThreadData::Track& trk,
+                                   unsigned int blob_index)
+  {
+    if (blob_index >= d->blobs.size())
+    {
+      return std::numeric_limits<double>::max();
+    }
+    const auto& bl = d->blobs[blob_index];
+    const double layer = static_cast<double>(bl.layer);
+    const double dp = bl.pad - (trk.pad_slope * layer + trk.pad_intercept);
+    const double dt = bl.tbin - (trk.tbin_slope * layer + trk.tbin_intercept);
+    return sqr(dp / safe_scale(d->score_dp_scale)) +
+           sqr(dt / safe_scale(d->score_dt_scale));
+  }
+
+  bool tracks_can_connect(const InModuleThreadData* d,
+                          const InModuleThreadData::Track& a,
                           const InModuleThreadData::Track& b,
-                          unsigned int connect_max_layer_gap,
-                          double connect_dp,
-                          double connect_dt,
-                          double connect_dpad_slope,
-                          double connect_dtbin_slope,
                           double& score)
   {
     score = std::numeric_limits<double>::max();
-
-    if (a.last_layer >= b.first_layer)
+    if (!d || a.blob_indices.empty() || b.blob_indices.empty())
     {
       return false;
     }
 
-    const unsigned int gap = b.first_layer - a.last_layer - 1;
-    if (gap > connect_max_layer_gap)
+    // A final module track should contain at most one blob on a layer.  Do not
+    // merge pieces that already compete for the same layer; shared-blob
+    // arbitration below resolves that ambiguity first.
+    if (tracks_share_layer(d, a, b))
     {
       return false;
     }
 
-    const double lmatch = 0.5 * (static_cast<double>(a.last_layer) +
-                                 static_cast<double>(b.first_layer));
+    const unsigned int gap = minimum_track_layer_gap(d, a, b);
+    if (gap == std::numeric_limits<unsigned int>::max() ||
+        gap > d->connect_max_layer_gap)
+    {
+      return false;
+    }
 
-    const double pad_a = a.pad_slope * lmatch + a.pad_intercept;
-    const double pad_b = b.pad_slope * lmatch + b.pad_intercept;
-    const double tbin_a = a.tbin_slope * lmatch + a.tbin_intercept;
-    const double tbin_b = b.tbin_slope * lmatch + b.tbin_intercept;
+    const double rel_a = track_reliability(a.nblobs);
+    const double rel_b = track_reliability(b.nblobs);
+    const double slope_rel = std::min(rel_a, rel_b);
 
-    const double dp = std::fabs(pad_a - pad_b);
-    const double dt = std::fabs(tbin_a - tbin_b);
+    auto pad_at = [](const InModuleThreadData::Track& t, double l)
+    {
+      return t.pad_slope * l + t.pad_intercept;
+    };
+    auto tbin_at = [](const InModuleThreadData::Track& t, double l)
+    {
+      return t.tbin_slope * l + t.tbin_intercept;
+    };
+
+    double dp0 = 0.0;
+    double dt0 = 0.0;
+    double dp1 = 0.0;
+    double dt1 = 0.0;
+    double w0 = 1.0;
+    double w1 = 1.0;
+    double cut_scale0 = 1.0;
+    double cut_scale1 = 1.0;
+
+    if (a.last_layer < b.first_layer || b.last_layer < a.first_layer)
+    {
+      // Disjoint pieces: propagate in BOTH directions.  The residual made by
+      // extrapolating the longer/more reliable track receives the tighter cut
+      // and the larger score weight.
+      const InModuleThreadData::Track& inner =
+          a.last_layer < b.first_layer ? a : b;
+      const InModuleThreadData::Track& outer =
+          a.last_layer < b.first_layer ? b : a;
+      const double rel_inner = a.last_layer < b.first_layer ? rel_a : rel_b;
+      const double rel_outer = a.last_layer < b.first_layer ? rel_b : rel_a;
+
+      const double l_outer = static_cast<double>(outer.first_layer);
+      const double l_inner = static_cast<double>(inner.last_layer);
+
+      dp0 = std::fabs(pad_at(inner, l_outer) - pad_at(outer, l_outer));
+      dt0 = std::fabs(tbin_at(inner, l_outer) - tbin_at(outer, l_outer));
+      dp1 = std::fabs(pad_at(inner, l_inner) - pad_at(outer, l_inner));
+      dt1 = std::fabs(tbin_at(inner, l_inner) - tbin_at(outer, l_inner));
+      w0 = rel_inner;
+      w1 = rel_outer;
+
+      if (rel_inner >= rel_outer)
+      {
+        cut_scale1 = 1.0 + 1.5 * (1.0 - rel_outer);
+      }
+      else
+      {
+        cut_scale0 = 1.0 + 1.5 * (1.0 - rel_inner);
+      }
+    }
+    else
+    {
+      // One fragment lies in a gap inside the radial span of the other.  This
+      // is the important dead-layer case: let the more reliable track define
+      // the road and test the short fragment at both of its measured ends.
+      const InModuleThreadData::Track& reference =
+          (a.nblobs > b.nblobs ||
+           (a.nblobs == b.nblobs &&
+            (a.last_layer - a.first_layer) >= (b.last_layer - b.first_layer)))
+              ? a
+              : b;
+      const InModuleThreadData::Track& fragment = &reference == &a ? b : a;
+
+      const double l0 = static_cast<double>(fragment.first_layer);
+      const double l1 = static_cast<double>(fragment.last_layer);
+      dp0 = std::fabs(pad_at(reference, l0) - pad_at(fragment, l0));
+      dt0 = std::fabs(tbin_at(reference, l0) - tbin_at(fragment, l0));
+      dp1 = std::fabs(pad_at(reference, l1) - pad_at(fragment, l1));
+      dt1 = std::fabs(tbin_at(reference, l1) - tbin_at(fragment, l1));
+      w0 = w1 = track_reliability(reference.nblobs);
+      cut_scale0 = cut_scale1 = 1.25;
+    }
+
+    if (dp0 > cut_scale0 * d->connect_dp ||
+        dt0 > cut_scale0 * d->connect_dt ||
+        dp1 > cut_scale1 * d->connect_dp ||
+        dt1 > cut_scale1 * d->connect_dt)
+    {
+      return false;
+    }
+
     const double dmp = std::fabs(a.pad_slope - b.pad_slope);
     const double dmt = std::fabs(a.tbin_slope - b.tbin_slope);
-
-    if (dp > connect_dp || dt > connect_dt ||
-        dmp > connect_dpad_slope || dmt > connect_dtbin_slope)
+    const double slope_cut_scale = 1.0 / std::max(slope_rel, 0.35);
+    if (dmp > slope_cut_scale * d->connect_dpad_slope ||
+        dmt > slope_cut_scale * d->connect_dtbin_slope)
     {
       return false;
     }
 
-    score = sqr(dp / safe_scale(connect_dp)) +
-            sqr(dt / safe_scale(connect_dt)) +
-            sqr(dmp / safe_scale(connect_dpad_slope)) +
-            sqr(dmt / safe_scale(connect_dtbin_slope)) +
-            0.05 * static_cast<double>(gap);
+    const double wsum = std::max(w0 + w1, 1.0e-9);
+    const double position_score =
+        (w0 * (sqr(dp0 / safe_scale(d->score_dp_scale)) +
+               sqr(dt0 / safe_scale(d->score_dt_scale))) +
+         w1 * (sqr(dp1 / safe_scale(d->score_dp_scale)) +
+               sqr(dt1 / safe_scale(d->score_dt_scale)))) /
+        wsum;
 
+    score = position_score +
+            slope_rel * sqr(dmp / safe_scale(d->score_dpad_slope_scale)) +
+            slope_rel * sqr(dmt / safe_scale(d->score_dtbin_slope_scale)) +
+            0.05 * static_cast<double>(gap);
     return true;
+  }
+
+  void resolve_shared_track_blobs(InModuleThreadData* d,
+                                  std::vector<InModuleThreadData::Track>& tracks)
+  {
+    if (!d || tracks.size() < 2 || d->blobs.empty())
+    {
+      return;
+    }
+
+    std::vector<std::vector<unsigned int>> users(d->blobs.size());
+    for (unsigned int it = 0; it < tracks.size(); ++it)
+    {
+      for (unsigned int ib : tracks[it].blob_indices)
+      {
+        if (ib < users.size()) users[ib].push_back(it);
+      }
+    }
+
+    for (unsigned int ib = 0; ib < users.size(); ++ib)
+    {
+      if (users[ib].size() < 2)
+      {
+        continue;
+      }
+
+      unsigned int winner = users[ib].front();
+      for (unsigned int candidate : users[ib])
+      {
+        const auto& best = tracks[winner];
+        const auto& test = tracks[candidate];
+        const bool best_robust = best.nblobs >= 8U;
+        const bool test_robust = test.nblobs >= 8U;
+
+        bool take_test = false;
+        if (best_robust != test_robust)
+        {
+          take_test = test_robust;
+        }
+        else if (test.nblobs >= best.nblobs + 2U)
+        {
+          take_test = true;
+        }
+        else if (best.nblobs < test.nblobs + 2U)
+        {
+          const double best_res = track_blob_residual_score(d, best, ib);
+          const double test_res = track_blob_residual_score(d, test, ib);
+          if (test_res < best_res)
+          {
+            take_test = true;
+          }
+        }
+        if (take_test)
+        {
+          winner = candidate;
+        }
+      }
+
+      for (unsigned int loser : users[ib])
+      {
+        if (loser == winner) continue;
+        auto& idx = tracks[loser].blob_indices;
+        idx.erase(std::remove(idx.begin(), idx.end(), ib), idx.end());
+        tracks[loser].nblobs = static_cast<unsigned int>(idx.size());
+        tracks[loser].nrawhits = count_raw_hits_from_blob_chain(d->blobs, idx);
+      }
+    }
+
+    for (auto& trk : tracks)
+    {
+      if (trk.blob_indices.size() < 2U)
+      {
+        trk.active = 0;
+        trk.nblobs = static_cast<unsigned int>(trk.blob_indices.size());
+        trk.nrawhits = count_raw_hits_from_blob_chain(d->blobs, trk.blob_indices);
+        continue;
+      }
+
+      InModuleThreadData::Track refit = trk;
+      if (make_track_from_blob_chain(d->blobs, trk.blob_indices,
+                                     d->weight_power,
+                                     d->adc_weight_floor_frac,
+                                     refit))
+      {
+        refit.track_id = trk.track_id;
+        refit.pass = trk.pass;
+        refit.active = trk.active;
+        refit.parked = trk.parked;
+        refit.has_questionable = trk.has_questionable;
+        refit.looper_candidate = trk.looper_candidate;
+        refit.needs_repair = trk.needs_repair;
+        refit.stop_reason = trk.stop_reason;
+        refit.questionable_start_position = trk.questionable_start_position;
+        trk = std::move(refit);
+      }
+      else
+      {
+        trk.active = 0;
+      }
+    }
+
+    tracks.erase(
+        std::remove_if(tracks.begin(), tracks.end(),
+                       [d](const InModuleThreadData::Track& trk)
+                       {
+                         return !trk.active ||
+                                trk.blob_indices.size() < d->min_tracklet_blobs_for_connection;
+                       }),
+        tracks.end());
   }
 
   void connect_track_pieces_in_module(InModuleThreadData* d)
@@ -341,8 +623,10 @@ namespace
       while (merged_any)
       {
         merged_any = false;
-        int best_j = -1;
-        double best_score = std::numeric_limits<double>::max();
+        int best_robust_j = -1;
+        int best_short_j = -1;
+        double best_robust_score = std::numeric_limits<double>::max();
+        double best_short_score = std::numeric_limits<double>::max();
 
         for (unsigned int j : order)
         {
@@ -351,24 +635,28 @@ namespace
             continue;
           }
 
-          double score = 0.0;
-          if (!tracks_can_connect(current, pieces[j],
-                                  d->connect_max_layer_gap,
-                                  d->connect_dp,
-                                  d->connect_dt,
-                                  d->connect_dpad_slope,
-                                  d->connect_dtbin_slope,
-                                  score))
+          double candidate_score = 0.0;
+          if (!tracks_can_connect(d, current, pieces[j], candidate_score))
           {
             continue;
           }
 
-          if (score < best_score)
+          if (pieces[j].nblobs >= 8U)
           {
-            best_score = score;
-            best_j = static_cast<int>(j);
+            if (candidate_score < best_robust_score)
+            {
+              best_robust_score = candidate_score;
+              best_robust_j = static_cast<int>(j);
+            }
+          }
+          else if (candidate_score < best_short_score)
+          {
+            best_short_score = candidate_score;
+            best_short_j = static_cast<int>(j);
           }
         }
+
+        const int best_j = best_robust_j >= 0 ? best_robust_j : best_short_j;
 
         if (best_j >= 0)
         {
@@ -2195,7 +2483,18 @@ namespace
       tracklets.push_back(std::move(trk));
     }
 
+    // First build the most robust/long module tracks and let them collect
+    // compatible short 2/3/4-blob fragments.  Do not arbitrate temporary
+    // SOFT/SHARED blobs before this stage: doing so can destroy exactly the
+    // dead-layer fragments that the long track should absorb.
     d->tracks.swap(tracklets);
+    connect_track_pieces_in_module(d);
+
+    // Only after in-module assembly is complete, resolve any remaining blob
+    // duplication between final candidates.  Re-run the connector once so a
+    // candidate shortened by arbitration can still attach to a compatible
+    // non-overlapping fragment.
+    resolve_shared_track_blobs(d, d->tracks);
     connect_track_pieces_in_module(d);
 
     d->tracks.erase(
@@ -2346,8 +2645,8 @@ InModuleThreadData::InModuleThreadData()
   , score_dt_scale(6.0)
   , score_dpad_slope_scale(2.0)
   , score_dtbin_slope_scale(2.0)
-  , score_dpad_second_scale(2.0)
-  , score_dtbin_second_scale(2.0)
+  , score_dpad_second_scale(5.0)
+  , score_dtbin_second_scale(5.0)
   , transfer_cost_ratio(0.7)
   , share_cost_ratio(1.25)
   , questionable_repair_iterations(2)
@@ -2360,7 +2659,7 @@ InModuleThreadData::InModuleThreadData()
   , third_min_blobs(3)
   , third_min_curvature_metric(0.0)
   , min_track_blobs(4)
-  , min_tracklet_blobs_for_connection(4)
+  , min_tracklet_blobs_for_connection(2)
   , connect_max_layer_gap(8)
   , connect_dp(8.0)
   , connect_dt(8.0)
@@ -2392,16 +2691,16 @@ Tpc_ModuleTrackReco::Tpc_ModuleTrackReco(const std::string& name,
   , m_noiseAdcTolerance{{5, 5, 5}}
   , m_blob_dt{{2, 2, 2}}
   , m_blob_dp{{2, 2, 2}}
-  , m_enableSecondPass(false)
+  , m_enableSecondPass(true)
   , m_enableThirdPass(false)
-  , m_enableQuestionableReassignment(false)
-  , m_seedFromInnerLayers(false)
+  , m_enableQuestionableReassignment(true)
+  , m_seedFromInnerLayers(true)
   , m_doPatternQA(false)
-  , m_maxLayerStep{{1, 1, 1}}
+  , m_maxLayerStep{{4, 4, 4}}
   , m_pass1Tight_dt{{6, 6, 6}}
   , m_pass1Tight_dp{{6, 6, 6}}
-  , m_pass1Broad_dt{{6, 6, 6}}
-  , m_pass1Broad_dp{{6, 6, 6}}
+  , m_pass1Broad_dt{{10, 10, 10}}
+  , m_pass1Broad_dp{{10, 10, 10}}
   , m_pass2Broad_dt{{12, 12, 12}}
   , m_pass2Broad_dp{{12, 12, 12}}
   , m_pass2Straight_dt{{6, 6, 6}}
@@ -2423,8 +2722,8 @@ Tpc_ModuleTrackReco::Tpc_ModuleTrackReco(const std::string& name,
   , m_score_dt_scale{{6.0, 6.0, 6.0}}
   , m_score_dpad_slope_scale{{2.0, 2.0, 2.0}}
   , m_score_dtbin_slope_scale{{2.0, 2.0, 2.0}}
-  , m_score_dpad_second_scale{{2.0, 2.0, 2.0}}
-  , m_score_dtbin_second_scale{{2.0, 2.0, 2.0}}
+  , m_score_dpad_second_scale{{5.0, 5.0, 5.0}}
+  , m_score_dtbin_second_scale{{5.0, 5.0, 5.0}}
   , m_transferCostRatio(0.7)
   , m_shareCostRatio(1.25)
   , m_questionableRepairIterations(2)
@@ -2437,7 +2736,7 @@ Tpc_ModuleTrackReco::Tpc_ModuleTrackReco(const std::string& name,
   , m_thirdMinBlobs{{3, 3, 3}}
   , m_thirdMinCurvatureMetric{{0.0, 0.0, 0.0}}
   , m_minTrackBlobs{{4, 4, 4}}
-  , m_minTrackletBlobsForConnection{{4, 4, 4}}
+  , m_minTrackletBlobsForConnection{{2, 2, 2}}
   , m_connectMaxLayerGap{{8, 8, 8}}
   , m_connect_dp{{8.0, 8.0, 8.0}}
   , m_connect_dt{{8.0, 8.0, 8.0}}
