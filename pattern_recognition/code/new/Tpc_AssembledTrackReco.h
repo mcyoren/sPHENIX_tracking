@@ -8,6 +8,7 @@
 
 class IdealPadMap;
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <mutex>
@@ -93,6 +94,68 @@ class Tpc_AssembledTrackReco : public SubsysReco
   void setUseSagittaPhiFit(bool v) { m_useSagittaPhiFit = v; }
   void setUseAnalyticSagittaSlope(bool v) { m_useAnalyticSagittaSlope = v; }
 
+  // Sagitta is only trusted after this many independent layer centroids are
+  // available.  Short 2--7 layer fragments remain linear and are attached
+  // using the longer candidate as the reference trajectory.
+  void setMinSagittaLayers(unsigned int n) { m_minSagittaLayers = std::max(3U, n); }
+
+  // Pieces at or above this size may be pre-assembled in-sector.  Shorter
+  // fragments are deliberately left for the global long-first pass.
+  void setRobustPieceMinBlobs(unsigned int n) { m_robustPieceMinBlobs = std::max(2U, n); }
+
+  // Score scales are independent of the hard connection cuts.
+  void setScoreScales(double dphi, double dtbin,
+                      double dphi_slope, double dtbin_slope)
+  {
+    m_score_dphi.fill(dphi);
+    m_score_dtbin.fill(dtbin);
+    m_score_dphi_slope.fill(dphi_slope);
+    m_score_dtbin_slope.fill(dtbin_slope);
+  }
+
+  void setRegionScoreScales(unsigned int region,
+                            double dphi, double dtbin,
+                            double dphi_slope, double dtbin_slope)
+  {
+    if (region >= kRegionCount) return;
+    m_score_dphi[region] = dphi;
+    m_score_dtbin[region] = dtbin;
+    m_score_dphi_slope[region] = dphi_slope;
+    m_score_dtbin_slope[region] = dtbin_slope;
+  }
+
+  void setScoreWeights(double phi, double tbin,
+                       double phi_slope, double tbin_slope)
+  {
+    m_weight_phi.fill(phi);
+    m_weight_tbin.fill(tbin);
+    m_weight_phi_slope.fill(phi_slope);
+    m_weight_tbin_slope.fill(tbin_slope);
+  }
+
+  void setRegionScoreWeights(unsigned int region,
+                             double phi, double tbin,
+                             double phi_slope, double tbin_slope)
+  {
+    if (region >= kRegionCount) return;
+    m_weight_phi[region] = phi;
+    m_weight_tbin[region] = tbin;
+    m_weight_phi_slope[region] = phi_slope;
+    m_weight_tbin_slope[region] = tbin_slope;
+  }
+
+  // Optional final piece reassignment.  A piece moves only when its exact
+  // connection score improves by the requested ratio and the donor can still
+  // be refit without it.
+  void setFinalReassociation(bool enabled,
+                             unsigned int iterations = 2,
+                             double improvement_ratio = 0.8)
+  {
+    m_enableFinalReassociation = enabled;
+    m_finalReassociationIterations = iterations;
+    m_finalReassociationImprovementRatio = improvement_ratio;
+  }
+
   // Optional fast stage. Defaults are OFF so the old assembly path remains
   // available for exact consistency tests.
   void setFastSameSectorPass(bool v) { m_enableFastSameSectorPass = v; }
@@ -102,14 +165,14 @@ class Tpc_AssembledTrackReco : public SubsysReco
     m_fastTightScale = tight_scale;
   }
 
-  // Optional unique-tight shortcut in the global normal stage. When enabled,
-  // one unique cheap candidate satisfying the tight linear/tbin windows can be
-  // trial-refit without first doing the exact pairwise sagitta test.
+  // Optional unique-tight preselection in the global normal stage.  The cheap
+  // relation only identifies a unique candidate; the candidate is always
+  // rechecked with the exact common score before it is accepted.
   void setNormalUniqueTightPass(bool v) { m_enableNormalUniqueTight = v; }
   void setNormalTightScale(double v) { m_normalTightScale = v; }
 
-  // Optional rescue. Long-long merges remain protected; a short candidate can
-  // still be attached to a long candidate. Scale grows linearly over iterations.
+  // Optional rescue. Robust+robust merges remain protected; the wider rescue
+  // windows are used only when at least one side is a short fragment.
   void setRescuePass(bool enabled,
                      unsigned int iterations = 1,
                      double max_window_scale = 1.5,
@@ -174,7 +237,10 @@ class Tpc_AssembledTrackReco : public SubsysReco
     double tbin_slope;
     double tbin_intercept;
 
+    // One fit point per layer/blob centroid.  Keep the complete raw-hit list
+    // separately so TPC_ASSEMBLEDTRACKS still carries every original hit.
     std::vector<PiecePoint> points;
+    std::vector<std::pair<TrkrDefs::hitsetkey, TrkrDefs::hitkey>> hit_indices;
   };
 
   struct SeedParameters
@@ -300,6 +366,10 @@ class Tpc_AssembledTrackReco : public SubsysReco
                               double window_scale,
                               std::vector<Candidate>& output) const;
 
+  void final_reassociate(const std::vector<Piece>& pieces,
+                         int side,
+                         std::vector<Candidate>& tracks) const;
+
   SeedParameters make_seed_parameters(const Candidate& c) const;
 
   std::string m_outputFileName;
@@ -329,6 +399,18 @@ class Tpc_AssembledTrackReco : public SubsysReco
   bool m_doDebugHistograms;
   unsigned int m_minClustersPerTrack;
   double m_linearPhiPrecutScale;
+  unsigned int m_minSagittaLayers;
+  unsigned int m_robustPieceMinBlobs;
+
+  // Score normalization and relative importance are independent from hard cuts.
+  std::array<double, kRegionCount> m_score_dphi;
+  std::array<double, kRegionCount> m_score_dtbin;
+  std::array<double, kRegionCount> m_score_dphi_slope;
+  std::array<double, kRegionCount> m_score_dtbin_slope;
+  std::array<double, kRegionCount> m_weight_phi;
+  std::array<double, kRegionCount> m_weight_tbin;
+  std::array<double, kRegionCount> m_weight_phi_slope;
+  std::array<double, kRegionCount> m_weight_tbin_slope;
 
   bool m_enableFastSameSectorPass;
   double m_fastBroadScale;
@@ -340,6 +422,10 @@ class Tpc_AssembledTrackReco : public SubsysReco
   unsigned int m_rescueIterations;
   double m_rescueMaxWindowScale;
   unsigned int m_rescueMaxSegments;
+
+  bool m_enableFinalReassociation;
+  unsigned int m_finalReassociationIterations;
+  double m_finalReassociationImprovementRatio;
 
   double m_seedSigmaX;
   double m_seedSigmaY;
