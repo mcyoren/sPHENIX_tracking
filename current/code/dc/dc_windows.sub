@@ -1,0 +1,16 @@
+universe = vanilla
+executable = $(srcdir)/run_dc_window.sh
+arguments = $(run) $(window) $(index) $(windows) $(outdir) $(srcdir) $(mappingdir) $(cdbtag)
+
+getenv = True
+request_cpus = 1
+request_memory = 4GB
+request_disk = 2GB
+
+output = $(logdir)/dc_$(run)_win$(window).out
+error  = $(logdir)/dc_$(run)_win$(window).err
+log    = $(logdir)/dc_$(run).log
+
+should_transfer_files = NO
+
+queue window from $(jobs)
