@@ -1,0 +1,13 @@
+Universe           = vanilla
+Initialdir         = /sphenix/user/mitrankov/coresoftware/offline/QA/PHGarfield_Calibration/work
+Executable         = $(Initialdir)/run_reco_multi_runs.sh
+Log                = /tmp/pp1_QA_$(runnumber)_$(segment).log
+Output             = /sphenix/tg/tg01/hf/mitrankov/ibf/output//log/pp1_TrackResid_$(runnumber)_$(segment).out
+Error              = /sphenix/tg/tg01/hf/mitrankov/ibf/output/log/pp1_TrackResid_$(runnumber)_$(segment).err
+PeriodicHold       = (NumJobStarts>=1 && JobStatus == 1)
+request_memory     = 6GB
+#request_cpus       = 4
+Priority           = 20
+job_lease_duration = 3600
+Arguments          = 200 $(runnumber) $(segment) 0
+Queue runnumber, segment from run_list_pp_07_12.txt
