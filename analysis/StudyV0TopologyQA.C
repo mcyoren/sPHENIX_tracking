@@ -1369,6 +1369,15 @@ namespace
     TopologyWindowQA sidebandRight;
     TopologyWindowQA sidebandsCombined;
 
+    // Same QA as above, filled after exactCut1 + unlike but BEFORE the
+    // signed (sailor/cowboy) Delta-phi cut.
+    MassVsQA massQAPreCut;
+
+    TopologyWindowQA peakPreCut;
+    TopologyWindowQA sidebandLeftPreCut;
+    TopologyWindowQA sidebandRightPreCut;
+    TopologyWindowQA sidebandsCombinedPreCut;
+
     SpeciesWindows windows;
   };
 
@@ -1440,6 +1449,30 @@ namespace
       160, -1.0, 1.0,
       300, massMin, massMax);
 
+    // Full QA before the signed Delta-phi cut, mirroring the post-cut layout.
+    TDirectory* preMassDir = preCutDir->mkdir("mass_vs_phase_space");
+    out.massQAPreCut = bookMassVsQA(preMassDir, species);
+
+    TDirectory* prePeakDir = preCutDir->mkdir("peak");
+    out.peakPreCut = bookTopologyWindowQA(
+      prePeakDir, species,
+      TString::Format("pre #Delta#phi cut, peak %.4f-%.4f", windows.peakMin, windows.peakMax));
+
+    TDirectory* preLeftDir = preCutDir->mkdir("sideband_left");
+    out.sidebandLeftPreCut = bookTopologyWindowQA(
+      preLeftDir, species,
+      TString::Format("pre #Delta#phi cut, left sideband %.4f-%.4f", windows.leftMin, windows.leftMax));
+
+    TDirectory* preRightDir = preCutDir->mkdir("sideband_right");
+    out.sidebandRightPreCut = bookTopologyWindowQA(
+      preRightDir, species,
+      TString::Format("pre #Delta#phi cut, right sideband %.4f-%.4f", windows.rightMin, windows.rightMax));
+
+    TDirectory* preCombinedDir = preCutDir->mkdir("sidebands_combined");
+    out.sidebandsCombinedPreCut = bookTopologyWindowQA(
+      preCombinedDir, species,
+      "pre #Delta#phi cut, left + right sidebands");
+
     TDirectory* peakDir = speciesDir->mkdir("peak");
     out.peak = bookTopologyWindowQA(
       peakDir, species,
@@ -1466,25 +1499,31 @@ namespace
   void fillSpeciesWindows(SpeciesOutput& out,
                           const Species species,
                           double mass,
-                          const EventKinematics& k)
+                          const EventKinematics& k,
+                          bool preCut = false)
   {
     const auto& w = out.windows;
 
+    TopologyWindowQA& peak = preCut ? out.peakPreCut : out.peak;
+    TopologyWindowQA& left = preCut ? out.sidebandLeftPreCut : out.sidebandLeft;
+    TopologyWindowQA& right = preCut ? out.sidebandRightPreCut : out.sidebandRight;
+    TopologyWindowQA& combined = preCut ? out.sidebandsCombinedPreCut : out.sidebandsCombined;
+
     if (inside(mass, w.peakMin, w.peakMax))
     {
-      fillTopologyWindowQA(out.peak, species, mass, k);
+      fillTopologyWindowQA(peak, species, mass, k);
     }
 
     if (inside(mass, w.leftMin, w.leftMax))
     {
-      fillTopologyWindowQA(out.sidebandLeft, species, mass, k);
-      fillTopologyWindowQA(out.sidebandsCombined, species, mass, k);
+      fillTopologyWindowQA(left, species, mass, k);
+      fillTopologyWindowQA(combined, species, mass, k);
     }
 
     if (inside(mass, w.rightMin, w.rightMax))
     {
-      fillTopologyWindowQA(out.sidebandRight, species, mass, k);
-      fillTopologyWindowQA(out.sidebandsCombined, species, mass, k);
+      fillTopologyWindowQA(right, species, mass, k);
+      fillTopologyWindowQA(combined, species, mass, k);
     }
   }
 }
@@ -1709,7 +1748,9 @@ void StudyV0TopologyQA(
     "selection_note",
     "exactCut1/exactCut2 and the signed pT-dependent Delta-phi cut are retained "
     "from the supplied StudyK0sDoublePeakQA.C. Peak/sideband topology QA is "
-    "filled after exactCut1 and after the signed Delta-phi cut.").Write();
+    "filled after exactCut1 and after the signed Delta-phi cut. The same full QA "
+    "is also filled before the signed Delta-phi cut under pre_deltaPhi_cut/ "
+    "(top level for legacy K0S, and <Species>/pre_deltaPhi_cut/).").Write();
 
   TParameter<double>("qualityScale", qualityScale).Write();
 
@@ -1774,6 +1815,60 @@ void StudyV0TopologyQA(
       TString::Format(
         "high mass %.3f-%.3f GeV/c^{2}",
         highMassMin, highMassMax));
+
+  // --------------------------------------------------------------------------
+  // Legacy K0S objects booked again, filled BEFORE the signed Delta-phi cut.
+  // Same names as above, stored under pre_deltaPhi_cut/.
+  // --------------------------------------------------------------------------
+
+  TDirectory* preCutTopDir =
+    output->mkdir("pre_deltaPhi_cut");
+
+  TDirectory* preLegacyMassDir =
+    preCutTopDir->mkdir("mass_vs_phase_space_exactCut1_unlike");
+
+  MassVsQA preLegacyK0sMassQA =
+    bookMassVsQA(preLegacyMassDir, Species::K0s);
+
+  preCutTopDir->cd();
+
+  TH1F* hMassUnlikePreCut = new TH1F(
+    "h_mass_exactCut1_unlike",
+    "exactCut1 unlike sign, before #Delta#phi cut;m_{#pi#pi} [GeV/c^{2}];candidates",
+    600, 0.42, 0.57);
+
+  TH1F* hMassLikePreCut = new TH1F(
+    "h_mass_exactCut1_like",
+    "exactCut1 like sign, before #Delta#phi cut;m_{#pi#pi} [GeV/c^{2}];candidates",
+    600, 0.42, 0.57);
+
+  TH2F* hMassVsV0PtLikePreCut = new TH2F(
+    "h_mass_vs_v0_pt_exactCut1_like",
+    "exactCut1 like sign, before #Delta#phi cut;p_{T}^{V0} [GeV/c];m_{#pi#pi} [GeV/c^{2}]",
+    100, 0., 5.,
+    300, 0.42, 0.57);
+
+  TDirectory* preLowDir =
+    preCutTopDir->mkdir("low_mass_window");
+
+  WindowMaps preLowMaps =
+    bookWindowMaps(
+      preLowDir,
+      TString::Format(
+        "pre #Delta#phi cut, low mass %.3f-%.3f GeV/c^{2}",
+        lowMassMin, lowMassMax));
+
+  TDirectory* preHighDir =
+    preCutTopDir->mkdir("high_mass_window");
+
+  WindowMaps preHighMaps =
+    bookWindowMaps(
+      preHighDir,
+      TString::Format(
+        "pre #Delta#phi cut, high mass %.3f-%.3f GeV/c^{2}",
+        highMassMin, highMassMax));
+
+  output->cd();
 
   // --------------------------------------------------------------------------
   // New species-organized QA.
@@ -2198,6 +2293,92 @@ void StudyV0TopologyQA(
         mass_Kshort,
         v0_pt,
         k.deltaPhi);
+    }
+
+    // ------------------------------------------------------------------------
+    // Full QA BEFORE the signed Delta-phi cut: same content as the post-cut
+    // block below, written to the pre_deltaPhi_cut directories.
+    // ------------------------------------------------------------------------
+
+    if (like)
+    {
+      hMassLikePreCut->Fill(
+        mass_Kshort);
+
+      hMassVsV0PtLikePreCut->Fill(
+        v0_pt,
+        mass_Kshort);
+    }
+
+    if (unlike)
+    {
+      hMassUnlikePreCut->Fill(
+        mass_Kshort);
+
+      fillMassVsQA(
+        preLegacyK0sMassQA,
+        Species::K0s,
+        mass_Kshort,
+        k,
+        recalcMassForSpecies(Species::K0s, k),
+        true);  // no Delta-phi cut applied yet, so fill Delta-phi histograms too
+
+      if (mass_Kshort >= lowMassMin &&
+          mass_Kshort < lowMassMax)
+      {
+        fillWindowMaps(
+          preLowMaps,
+          mass_Kshort,
+          k);
+      }
+
+      if (mass_Kshort >= highMassMin &&
+          mass_Kshort < highMassMax)
+      {
+        fillWindowMaps(
+          preHighMaps,
+          mass_Kshort,
+          k);
+      }
+
+      for (const Species species :
+           {Species::K0s, Species::Lambda, Species::AntiLambda})
+      {
+        const double mass =
+          massForSpecies(
+            species,
+            mass_Kshort,
+            mass_Lambda,
+            mass_AntiLambda);
+
+        const double recalcMass =
+          recalcMassForSpecies(
+            species,
+            k);
+
+        SpeciesOutput* out = nullptr;
+
+        if (species == Species::K0s)
+          out = &k0sOutput;
+        else if (species == Species::Lambda)
+          out = &lambdaOutput;
+        else
+          out = &antiLambdaOutput;
+
+        fillMassVsQA(
+          out->massQAPreCut,
+          species,
+          mass,
+          k,
+          recalcMass);
+
+        fillSpeciesWindows(
+          *out,
+          species,
+          mass,
+          k,
+          true);
+      }
     }
 
     // Preserve the supplied signed Delta-phi selection.
