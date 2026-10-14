@@ -1,0 +1,10 @@
+# keff scan; run with g4geom=perfect (Garfield 'container' then follows the perfect G4 geometry)
+# tag          garfield  tpcgeom    keff0  keff1  efield2D  efield3D_side0  efield3D_side1
+noGarfield     0         -          -      -      -         -               -
+keff_cdb       1         container  -      -      -         -               -
+keff0p0        1         container  0.0    0.0    -         -               -
+keff0p5        1         container  0.5    0.5    -         -               -
+keff1p0        1         container  1.0    1.0    -         -               -
+keff1p5        1         container  1.5    1.5    -         -               -
+keff2p0        1         container  2.0    2.0    -         -               -
+keff3p0        1         container  3.0    3.0    -         -               -

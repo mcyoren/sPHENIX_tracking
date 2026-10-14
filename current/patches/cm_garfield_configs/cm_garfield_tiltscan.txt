@@ -1,0 +1,4 @@
+# tilt scan: run with g4geom=tilt_<rx>_<ry> and useGlobal=0; Garfield 'container' follows the G4 tilt
+# tag          garfield  tpcgeom    keff0  keff1  efield2D  efield3D_side0  efield3D_side1
+noGarfield     0         -          -      -      -         -               -
+cont_cdb       1         container  -      -      -         -               -

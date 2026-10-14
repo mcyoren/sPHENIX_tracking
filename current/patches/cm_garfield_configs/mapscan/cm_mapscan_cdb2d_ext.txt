@@ -1,0 +1,6 @@
+# extended keff range for cdb2d
+# tag  garfield  tpcgeom  keff0  keff1  efield2D  efield3D_side0  efield3D_side1
+cdb2d_k1p150  1  container  x1.150  x1.150  -  -  -
+cdb2d_k1p200  1  container  x1.200  x1.200  -  -  -
+cdb2d_k1p300  1  container  x1.300  x1.300  -  -  -
+cdb2d_k1p400  1  container  x1.400  x1.400  -  -  -

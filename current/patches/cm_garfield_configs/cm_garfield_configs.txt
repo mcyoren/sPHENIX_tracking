@@ -1,0 +1,11 @@
+# tag          garfield  tpcgeom    keff0  keff1  efield2D  efield3D_side0  efield3D_side1
+# '-' = default: tpcgeom=hard, keff from CDB Tpc_PolyClusterizer_kEff,
+#                2D map from CDB Tpc_PolySeeding_EField (3D pair overrides 2D)
+noGarfield     0         -          -      -      -         -               -
+hard_cdb       1         hard       -      -      -         -               -
+cont_cdb       1         container  -      -      -         -               -
+perf_cdb       1         perfect    -      -      -         -               -
+cont_keff0     1         container  0.0    0.0    -         -               -
+cont_keff2     1         container  2.0    2.0    -         -               -
+#cont_map3d    1         container  -      -      -         /path/side0.root  /path/side1.root
+#cont_map2d    1         container  -      -      /path/map2d.root  -       -

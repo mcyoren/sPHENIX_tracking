@@ -1,0 +1,11 @@
+map        side   | M0: k only             | M1: k + const dR + rigid rotation               
+                  |  k/kCDB       rms[mm] |  k/kCDB    c[mm] phi0[mrad]  rms[mm]    rmsdR rmsRdphi
+cdb2d      South  |   1.114         0.330 |   1.054   -0.046      0.385    0.308    0.379    0.216
+cdb2d      North  |   0.754         0.538 |   1.008   -0.656     -1.202    0.161    0.161    0.161
+alpha1p25  South  |   1.138         0.315 |   1.089   -0.064      0.320    0.297    0.362    0.213
+alpha1p25  North  |   0.766         0.546 |   1.038   -0.670     -1.257    0.155    0.144    0.165
+alpha1p6   South  |   1.151         0.294 |   1.189   -0.145     -0.132    0.277    0.362    0.148
+alpha1p6   North  |   0.748         0.608 |   1.123   -0.754     -1.672    0.132    0.159    0.097
+alpha2p0   South  |   1.148         0.358 |   1.317   -0.261     -0.715    0.291    0.372    0.176
+alpha2p0   North  |   0.720         0.693 |   1.238   -0.865     -2.211    0.181    0.186    0.176
+  k/kCDB: fitted keff relative to the CDB keff; rms: what the fit leaves in the ring means

@@ -1,0 +1,5 @@
+rot_y 0                        S: <dR>  -0.389 rms  1.339 rmsH  1.238 <Rdp>  -0.193 rms  0.556 rmsH  0.521 dx   0.29 dy  -0.34 | N: <dR>   1.002 rms  1.438 rmsH  1.132 <Rdp>   0.486 rms  1.302 rmsH  0.680 dx  -0.92 dy   1.01
+rot_y 0.37                     S: <dR>  -0.386 rms  1.265 rmsH  1.212 <Rdp>  -0.168 rms  0.546 rmsH  0.519 dx  -0.04 dy  -0.24 | N: <dR>   1.003 rms  1.340 rmsH  1.133 <Rdp>   0.485 rms  1.118 rmsH  0.682 dx  -0.59 dy   0.89
+rot_y 0.74                     S: <dR>  -0.400 rms  1.252 rmsH  1.205 <Rdp>  -0.133 rms  0.634 rmsH  0.522 dx  -0.36 dy  -0.11 | N: <dR>   1.004 rms  1.282 rmsH  1.133 <Rdp>   0.483 rms  0.963 rmsH  0.683 dx  -0.26 dy   0.77
+rot_y 1.11                     S: <dR>  -0.407 rms  1.290 rmsH  1.203 <Rdp>  -0.109 rms  0.784 rmsH  0.519 dx  -0.68 dy   0.01 | N: <dR>   1.005 rms  1.274 rmsH  1.134 <Rdp>   0.482 rms  0.853 rmsH  0.684 dx   0.07 dy   0.65
+rot_y 1.48 (survey)            S: <dR>  -0.419 rms  1.379 rmsH  1.201 <Rdp>  -0.084 rms  0.970 rmsH  0.517 dx  -1.01 dy   0.13 | N: <dR>   1.006 rms  1.314 rmsH  1.134 <Rdp>   0.481 rms  0.806 rmsH  0.686 dx   0.40 dy   0.53

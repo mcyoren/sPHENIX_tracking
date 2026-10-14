@@ -1,0 +1,7 @@
+keff CDB (1.39/1.38)           S: <dR>   0.039 rms  1.262 rmsH  1.142 <Rdp>  -0.332 rms  0.525 rmsH  0.584 dx   0.33 dy  -0.10 | N: <dR>   0.659 rms  1.180 rmsH  0.840 <Rdp>   0.611 rms  1.325 rmsH  0.782 dx  -1.06 dy   0.74
+keff 0                         S: <dR>  -0.392 rms  1.571 rmsH  1.480 <Rdp>  -1.461 rms  2.282 rmsH  2.264 dx   0.33 dy  -0.09 | N: <dR>   0.209 rms  1.156 rmsH  0.814 <Rdp>  -0.607 rms  2.037 rmsH  1.740 dx  -1.04 dy   0.75
+keff 0.5                       S: <dR>  -0.239 rms  1.422 rmsH  1.319 <Rdp>  -1.054 rms  1.578 rmsH  1.569 dx   0.33 dy  -0.09 | N: <dR>   0.368 rms  1.106 rmsH  0.739 <Rdp>  -0.168 rms  1.512 rmsH  1.075 dx  -1.05 dy   0.75
+keff 1.0                       S: <dR>  -0.083 rms  1.313 rmsH  1.199 <Rdp>  -0.648 rms  0.914 rmsH  0.926 dx   0.33 dy  -0.10 | N: <dR>   0.532 rms  1.123 rmsH  0.761 <Rdp>   0.272 rms  1.246 rmsH  0.643 dx  -1.05 dy   0.75
+keff 1.5                       S: <dR>   0.057 rms  1.265 rmsH  1.149 <Rdp>  -0.242 rms  0.482 rmsH  0.556 dx   0.33 dy  -0.08 | N: <dR>   0.694 rms  1.201 rmsH  0.874 <Rdp>   0.716 rms  1.397 rmsH  0.895 dx  -1.06 dy   0.74
+keff 2.0                       S: <dR>   0.212 rms  1.259 rmsH  1.140 <Rdp>   0.166 rms  0.822 rmsH  0.893 dx   0.33 dy  -0.08 | N: <dR>   0.859 rms  1.336 rmsH  1.048 <Rdp>   1.157 rms  1.862 rmsH  1.520 dx  -1.07 dy   0.74
+keff 3.0                       S: <dR>   0.518 rms  1.410 rmsH  1.303 <Rdp>   0.984 rms  2.165 rmsH  2.213 dx   0.33 dy  -0.08 | N: <dR>   1.170 rms  1.700 rmsH  1.489 <Rdp>   2.010 rms  3.135 rmsH  2.938 dx  -1.07 dy   0.74

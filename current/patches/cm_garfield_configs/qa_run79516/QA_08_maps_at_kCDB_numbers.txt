@@ -1,0 +1,5 @@
+cdb2d                          S: <dR>   0.039 rms  1.262 rmsH  1.142 <Rdp>  -0.332 rms  0.525 rmsH  0.584 dx   0.33 dy  -0.10 | N: <dR>   0.659 rms  1.180 rmsH  0.840 <Rdp>   0.611 rms  1.325 rmsH  0.782 dx  -1.06 dy   0.74
+alpha1p25                      S: <dR>   0.037 rms  1.293 rmsH  1.172 <Rdp>  -0.336 rms  0.573 rmsH  0.634 dx   0.33 dy  -0.10 | N: <dR>   0.658 rms  1.217 rmsH  0.826 <Rdp>   0.602 rms  1.256 rmsH  0.760 dx  -1.05 dy   0.72
+alpha1p6                       S: <dR>   0.061 rms  1.284 rmsH  1.179 <Rdp>  -0.223 rms  0.504 rmsH  0.532 dx   0.33 dy  -0.08 | N: <dR>   0.700 rms  1.236 rmsH  0.881 <Rdp>   0.714 rms  1.317 rmsH  0.840 dx  -1.05 dy   0.72
+alpha2p0                       S: <dR>   0.124 rms  1.288 rmsH  1.180 <Rdp>  -0.090 rms  0.533 rmsH  0.552 dx   0.33 dy  -0.10 | N: <dR>   0.744 rms  1.272 rmsH  0.924 <Rdp>   0.834 rms  1.387 rmsH  0.953 dx  -1.05 dy   0.72
+noGarfield                     S: <dR>  17.085 rms 17.235 rmsH 17.226 <Rdp>  -9.433 rms  9.700 rmsH  9.662 dx   0.30 dy  -0.19 | N: <dR>  15.011 rms 15.127 rmsH 15.103 <Rdp>  -6.014 rms  6.585 rmsH  6.495 dx  -1.11 dy   0.76

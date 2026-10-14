@@ -1,0 +1,3 @@
+G4 perfect, Garf container     S: <dR>   0.039 rms  1.262 rmsH  1.142 <Rdp>  -0.332 rms  0.525 rmsH  0.584 dx   0.33 dy  -0.10 | N: <dR>   0.659 rms  1.180 rmsH  0.840 <Rdp>   0.611 rms  1.325 rmsH  0.782 dx  -1.06 dy   0.74
+G4 perfect, Garf hard          S: <dR>   0.044 rms  1.398 rmsH  1.141 <Rdp>  -0.338 rms  0.563 rmsH  0.596 dx   0.60 dy   0.37 | N: <dR>   0.694 rms  1.252 rmsH  0.888 <Rdp>   0.613 rms  1.372 rmsH  0.784 dx  -1.34 dy   0.31
+G4 perfect, Garf perfect       S: <dR>   0.039 rms  1.262 rmsH  1.142 <Rdp>  -0.332 rms  0.525 rmsH  0.584 dx   0.33 dy  -0.10 | N: <dR>   0.659 rms  1.180 rmsH  0.840 <Rdp>   0.611 rms  1.325 rmsH  0.782 dx  -1.06 dy   0.74

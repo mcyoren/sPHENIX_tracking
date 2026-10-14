@@ -1,0 +1,4 @@
+cdb2d k x1.025 (fit 1.0310)    S: <dR>   0.034 rms  1.272 rmsH  1.157 <Rdp>  -0.304 rms  0.506 rmsH  0.571 dx   0.33 dy  -0.08 | N: <dR>   0.667 rms  1.184 rmsH  0.850 <Rdp>   0.645 rms  1.346 rmsH  0.814 dx  -1.06 dy   0.74
+alpha1p25 k x1.050 (fit 1.0635) S: <dR>   0.042 rms  1.303 rmsH  1.187 <Rdp>  -0.280 rms  0.540 rmsH  0.610 dx   0.33 dy  -0.09 | N: <dR>   0.681 rms  1.233 rmsH  0.844 <Rdp>   0.662 rms  1.292 rmsH  0.821 dx  -1.05 dy   0.72
+alpha1p6 k x1.150 (fit 1.1560) S: <dR>   0.132 rms  1.270 rmsH  1.164 <Rdp>  -0.036 rms  0.421 rmsH  0.471 dx   0.33 dy  -0.08 | N: <dR>   0.775 rms  1.287 rmsH  0.944 <Rdp>   0.912 rms  1.446 rmsH  1.036 dx  -1.06 dy   0.72
+alpha2p0 k x1.300 (fit 1.2775) S: <dR>   0.264 rms  1.289 rmsH  1.187 <Rdp>   0.321 rms  0.558 rmsH  0.605 dx   0.33 dy  -0.09 | N: <dR>   0.907 rms  1.388 rmsH  1.065 <Rdp>   1.267 rms  1.693 rmsH  1.372 dx  -1.06 dy   0.71

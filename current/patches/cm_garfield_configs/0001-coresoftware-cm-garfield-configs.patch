@@ -1,0 +1,343 @@
+From ccbb0cca9439c0ba5bbfb10e16ba69c6a6ebaa5e Mon Sep 17 00:00:00 2001
+From: Iurii Mitrankov <iurii.mitrankov@stonybrook.edu>
+Date: Wed, 14 Oct 2026 15:49:28 -0400
+Subject: [PATCH] CM laser matching: configurable PHGarfield field map / TPC
+ geometry, TPC geometry override module
+
+- LaserClusterHelper/LaserClusterTruthMatcher: set_garfield_efieldmap (2D),
+  set_garfield_efieldmap3d (side0, side1), set_garfield_tpc_geometry
+  (HardcodedSurvey | GeomContainer | Perfect); PHGarfield instance kept
+  private so several matchers can run in one job
+- TpcGeometryOverride: overwrite TPC place/rot in TPCGEOMCONTAINER before
+  MakeActsGeometry (perfect vs survey TPC position)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ offline/packages/tpc/LaserClusterHelper.cc    | 54 ++++++++++++++---
+ offline/packages/tpc/LaserClusterHelper.h     | 22 +++++++
+ .../tpccalib/LaserClusterTruthMatcher.cc      |  3 +
+ .../tpccalib/LaserClusterTruthMatcher.h       | 14 +++++
+ offline/packages/tpccalib/Makefile.am         |  6 +-
+ .../packages/tpccalib/TpcGeometryOverride.cc  | 53 ++++++++++++++++
+ .../packages/tpccalib/TpcGeometryOverride.h   | 60 +++++++++++++++++++
+ 7 files changed, 201 insertions(+), 11 deletions(-)
+ create mode 100644 offline/packages/tpccalib/TpcGeometryOverride.cc
+ create mode 100644 offline/packages/tpccalib/TpcGeometryOverride.h
+
+diff --git a/offline/packages/tpc/LaserClusterHelper.cc b/offline/packages/tpc/LaserClusterHelper.cc
+index 4d096e9..c50731b 100644
+--- a/offline/packages/tpc/LaserClusterHelper.cc
++++ b/offline/packages/tpc/LaserClusterHelper.cc
+@@ -55,7 +55,6 @@ void LaserClusterHelper::loadNodes(PHCompositeNode* topNode)
+ 
+     if(m_useGarfield)
+     {
+-        const std::string m_spacechargefieldmap = CDBInterface::instance()->getUrl("Tpc_PolySeeding_EField");
+         const auto kefffile = CDBInterface::instance()->getUrl("Tpc_PolyClusterizer_kEff");
+         if (!kefffile.empty())
+         {
+@@ -66,14 +65,51 @@ void LaserClusterHelper::loadNodes(PHCompositeNode* topNode)
+         }
+ 
+         m_phgarfield = std::make_unique<PHGarfield>();
+-        m_phgarfield->SetElectricFieldMap(m_spacechargefieldmap);
+-        ROOT::Math::XYZVector Northxyz(-0.001, -0.001, 1123.109);
+-        ROOT::Math::XYZVector Southxyz(-3.354, -0.673, -1137.382);
+-        ROOT::Math::XYZVector center = 0.5 * (Northxyz + Southxyz);
+-        center *= 0.1;  // mm to cm
+-        m_phgarfield->MoveTpc(center.X(), center.Y(), center.Z());
+-        m_phgarfield->RotateTpc(0, 0.001485, 0);
+-        m_phgarfield->RotateTpc(0.000298, 0, 0);
++        // private instance: several matchers with different settings can run in one job
++        m_phgarfield->SetPublishToNodeTree(false);
++
++        if (!m_garfield_efieldmap3d[0].empty() && !m_garfield_efieldmap3d[1].empty())
++        {
++            m_phgarfield->SetElectricFieldMap3D(m_garfield_efieldmap3d[0], m_garfield_efieldmap3d[1]);
++        }
++        else
++        {
++            const std::string spacechargefieldmap = m_garfield_efieldmap.empty() ? CDBInterface::instance()->getUrl("Tpc_PolySeeding_EField") : m_garfield_efieldmap;
++            m_phgarfield->SetElectricFieldMap(spacechargefieldmap);
++        }
++
++        switch (m_garfield_tpc_geometry)
++        {
++        case GarfieldTpcGeometry::HardcodedSurvey:
++        {
++            ROOT::Math::XYZVector Northxyz(-0.001, -0.001, 1123.109);
++            ROOT::Math::XYZVector Southxyz(-3.354, -0.673, -1137.382);
++            ROOT::Math::XYZVector center = 0.5 * (Northxyz + Southxyz);
++            center *= 0.1;  // mm to cm
++            m_phgarfield->MoveTpc(center.X(), center.Y(), center.Z());
++            m_phgarfield->RotateTpc(0, 0.001485, 0);
++            m_phgarfield->RotateTpc(0.000298, 0, 0);
++            break;
++        }
++        case GarfieldTpcGeometry::GeomContainer:
++            // PHGarfield::LoadCDBInputs reads place/rot of TPCGEOMCONTAINER layer 20
++            m_phgarfield->SetUseSurveyGeometry(true);
++            break;
++        case GarfieldTpcGeometry::Perfect:
++            m_phgarfield->SetUseSurveyGeometry(false);
++            m_phgarfield->MoveTpc(0, 0, 0);
++            break;
++        }
++
++        std::cout << "LaserClusterHelper::loadNodes - PHGarfield config:"
++                  << " efield2D=" << m_garfield_efieldmap
++                  << " efield3D=" << m_garfield_efieldmap3d[0] << "," << m_garfield_efieldmap3d[1]
++                  << " keff=" << m_garfield_keffside0 << "," << m_garfield_keffside1
++                  << " tpcGeometry=" << static_cast<int>(m_garfield_tpc_geometry)
++                  << " cmVoltage=" << m_garfield_cmvoltage
++                  << " zeroField=" << m_garfield_zerofield
++                  << " stepns=" << m_garfield_stepns << std::endl;
++
+         m_phgarfield->SetCMVoltageDefault(m_garfield_cmvoltage);
+         m_phgarfield->SetZeroField(m_garfield_zerofield);
+         m_phgarfield->SetSpaceChargeScaleSide0(m_garfield_keffside0);
+diff --git a/offline/packages/tpc/LaserClusterHelper.h b/offline/packages/tpc/LaserClusterHelper.h
+index 1732052..54d1b66 100644
+--- a/offline/packages/tpc/LaserClusterHelper.h
++++ b/offline/packages/tpc/LaserClusterHelper.h
+@@ -44,6 +44,25 @@ class LaserClusterHelper : public SubsysReco
+     void set_garfield_keffside0(double use) { m_garfield_keffside0 = use; m_manual_garfield_keffside0 = true; }
+     void set_garfield_keffside1(double use) { m_garfield_keffside1 = use; m_manual_garfield_keffside1 = true; }
+     void set_garfield_stepns(double use) { m_garfield_stepns = use; }
++
++    //! 2D (axisymmetric) space-charge E-field map; empty = CDB Tpc_PolySeeding_EField
++    void set_garfield_efieldmap(const std::string &file) { m_garfield_efieldmap = file; }
++    //! side-separated 3D space-charge E-field maps; takes precedence over the 2D map
++    void set_garfield_efieldmap3d(const std::string &side0, const std::string &side1)
++    {
++      m_garfield_efieldmap3d[0] = side0;
++      m_garfield_efieldmap3d[1] = side1;
++    }
++
++    //! TPC placement used by PHGarfield for global <-> TPC-frame transforms
++    enum class GarfieldTpcGeometry
++    {
++      HardcodedSurvey = 0,  //! fixed endcap-survey numbers (previous default)
++      GeomContainer = 1,    //! place/rot from TPCGEOMCONTAINER, same transform as ActsGeometry
++      Perfect = 2           //! no displacement, no tilt
++    };
++    void set_garfield_tpc_geometry(GarfieldTpcGeometry geom) { m_garfield_tpc_geometry = geom; }
++
+   private:
+ 
+     ActsGeometry *m_tGeometry{nullptr};
+@@ -62,6 +81,9 @@ class LaserClusterHelper : public SubsysReco
+     double m_garfield_keffside0{1.0};
+     double m_garfield_keffside1{1.0};
+     double m_garfield_stepns{50.0};
++    std::string m_garfield_efieldmap;
++    std::array<std::string, 2> m_garfield_efieldmap3d;
++    GarfieldTpcGeometry m_garfield_tpc_geometry{GarfieldTpcGeometry::HardcodedSurvey};
+ 
+ 
+ };
+diff --git a/offline/packages/tpccalib/LaserClusterTruthMatcher.cc b/offline/packages/tpccalib/LaserClusterTruthMatcher.cc
+index 9476ed4..7588a2d 100644
+--- a/offline/packages/tpccalib/LaserClusterTruthMatcher.cc
++++ b/offline/packages/tpccalib/LaserClusterTruthMatcher.cc
+@@ -1471,6 +1471,9 @@ int LaserClusterTruthMatcher::getNodes(PHCompositeNode *topNode)
+     if(m_manual_garfield_keffside0){ m_laserClusterHelper.set_garfield_keffside0(m_garfield_keffside0); }
+     if(m_manual_garfield_keffside1){ m_laserClusterHelper.set_garfield_keffside1(m_garfield_keffside1); }
+     m_laserClusterHelper.set_garfield_stepns(m_garfield_stepns);
++    m_laserClusterHelper.set_garfield_efieldmap(m_garfield_efieldmap);
++    m_laserClusterHelper.set_garfield_efieldmap3d(m_garfield_efieldmap3d[0], m_garfield_efieldmap3d[1]);
++    m_laserClusterHelper.set_garfield_tpc_geometry(m_garfield_tpc_geometry);
+   }
+   m_laserClusterHelper.loadNodes(topNode);
+ 
+diff --git a/offline/packages/tpccalib/LaserClusterTruthMatcher.h b/offline/packages/tpccalib/LaserClusterTruthMatcher.h
+index 5e5fab1..58cf3d8 100644
+--- a/offline/packages/tpccalib/LaserClusterTruthMatcher.h
++++ b/offline/packages/tpccalib/LaserClusterTruthMatcher.h
+@@ -9,6 +9,7 @@
+ 
+ #include <fun4all/SubsysReco.h>
+ 
++#include <array>
+ #include <map>
+ #include <string>
+ #include <vector>
+@@ -81,6 +82,16 @@ class LaserClusterTruthMatcher : public SubsysReco
+   void set_garfield_keffside0(double use) { m_garfield_keffside0 = use; m_manual_garfield_keffside0 = true; }
+   void set_garfield_keffside1(double use) { m_garfield_keffside1 = use; m_manual_garfield_keffside1 = true;}
+   void set_garfield_stepns(double use) { m_garfield_stepns = use; }
++  //! 2D space-charge E-field map; empty = CDB Tpc_PolySeeding_EField
++  void set_garfield_efieldmap(const std::string &file) { m_garfield_efieldmap = file; }
++  //! side-separated 3D space-charge E-field maps; take precedence over the 2D map
++  void set_garfield_efieldmap3d(const std::string &side0, const std::string &side1)
++  {
++    m_garfield_efieldmap3d[0] = side0;
++    m_garfield_efieldmap3d[1] = side1;
++  }
++  //! TPC placement used inside PHGarfield (hardcoded survey, TPCGEOMCONTAINER, or perfect)
++  void set_garfield_tpc_geometry(LaserClusterHelper::GarfieldTpcGeometry geom) { m_garfield_tpc_geometry = geom; }
+ 
+   void set_QABase(const std::string &name) { m_QABase = name; }
+ 
+@@ -111,6 +122,9 @@ class LaserClusterTruthMatcher : public SubsysReco
+   double m_garfield_keffside0{1.0};
+   double m_garfield_keffside1{1.0};
+   double m_garfield_stepns{50.0};
++  std::string m_garfield_efieldmap;
++  std::array<std::string, 2> m_garfield_efieldmap3d;
++  LaserClusterHelper::GarfieldTpcGeometry m_garfield_tpc_geometry{LaserClusterHelper::GarfieldTpcGeometry::HardcodedSurvey};
+ 
+   std::string m_distortionOutputfile{"CMDistortionCorrections.root"};
+ 
+diff --git a/offline/packages/tpccalib/Makefile.am b/offline/packages/tpccalib/Makefile.am
+index 9fc3745..b3d3b5a 100644
+--- a/offline/packages/tpccalib/Makefile.am
++++ b/offline/packages/tpccalib/Makefile.am
+@@ -50,7 +50,8 @@ pkginclude_HEADERS = \
+   TpcSpaceChargeReconstructionHelper.h \
+   PHTpcResiduals.h \
+   TpcCentralMembraneMatching.h \
+-  TpcLaminationFitting.h
++  TpcLaminationFitting.h \
++  TpcGeometryOverride.h
+ 
+ 
+ ROOTDICTS = \
+@@ -78,7 +79,8 @@ libtpccalib_la_SOURCES = \
+   TpcSpaceChargeReconstructionHelper.cc \
+   PHTpcResiduals.cc \
+   TpcCentralMembraneMatching.cc \
+-  TpcLaminationFitting.cc
++  TpcLaminationFitting.cc \
++  TpcGeometryOverride.cc
+ 
+ # Rule for generating table CINT dictionaries.
+ %_Dict.cc: %.h %LinkDef.h
+diff --git a/offline/packages/tpccalib/TpcGeometryOverride.cc b/offline/packages/tpccalib/TpcGeometryOverride.cc
+new file mode 100644
+index 0000000..118bca8
+--- /dev/null
++++ b/offline/packages/tpccalib/TpcGeometryOverride.cc
+@@ -0,0 +1,53 @@
++#include "TpcGeometryOverride.h"
++
++#include <g4detectors/PHG4TpcGeom.h>
++#include <g4detectors/PHG4TpcGeomContainer.h>
++
++#include <fun4all/Fun4AllReturnCodes.h>
++#include <phool/PHCompositeNode.h>
++#include <phool/getClass.h>
++
++#include <iostream>
++
++TpcGeometryOverride::TpcGeometryOverride(const std::string &name)
++  : SubsysReco(name)
++{
++}
++
++int TpcGeometryOverride::InitRun(PHCompositeNode *topNode)
++{
++  auto *geomContainer = findNode::getClass<PHG4TpcGeomContainer>(topNode, "TPCGEOMCONTAINER");
++  if (!geomContainer)
++  {
++    std::cout << Name() << "::InitRun - TPCGEOMCONTAINER not found" << std::endl;
++    return Fun4AllReturnCodes::ABORTRUN;
++  }
++
++  PHG4TpcGeom *layer20 = geomContainer->GetLayerCellGeom(20);
++  if (layer20)
++  {
++    std::cout << Name() << "::InitRun - input TPC geometry: place = ("
++              << layer20->get_place_x() << ", " << layer20->get_place_y() << ", " << layer20->get_place_z()
++              << ") cm, rot = (" << layer20->get_rot_x() << ", " << layer20->get_rot_y() << ", " << layer20->get_rot_z()
++              << ") rad" << std::endl;
++  }
++
++  const auto range = geomContainer->get_begin_end();
++  for (auto iter = range.first; iter != range.second; ++iter)
++  {
++    PHG4TpcGeom *geom = iter->second;
++    geom->set_place_x(m_place[0]);
++    geom->set_place_y(m_place[1]);
++    geom->set_place_z(m_place[2]);
++    geom->set_rot_x(m_rot[0]);
++    geom->set_rot_y(m_rot[1]);
++    geom->set_rot_z(m_rot[2]);
++  }
++
++  std::cout << Name() << "::InitRun - overridden TPC geometry: place = ("
++            << m_place[0] << ", " << m_place[1] << ", " << m_place[2]
++            << ") cm, rot = (" << m_rot[0] << ", " << m_rot[1] << ", " << m_rot[2]
++            << ") rad" << std::endl;
++
++  return Fun4AllReturnCodes::EVENT_OK;
++}
+diff --git a/offline/packages/tpccalib/TpcGeometryOverride.h b/offline/packages/tpccalib/TpcGeometryOverride.h
+new file mode 100644
+index 0000000..1714a09
+--- /dev/null
++++ b/offline/packages/tpccalib/TpcGeometryOverride.h
+@@ -0,0 +1,60 @@
++#ifndef TPCCALIB_TPCGEOMETRYOVERRIDE_H
++#define TPCCALIB_TPCGEOMETRYOVERRIDE_H
++
++#include <fun4all/SubsysReco.h>
++
++#include <string>
++
++class PHCompositeNode;
++
++/*
++ * Overwrites the TPC envelope placement (place_x/y/z, cm) and tilt
++ * (rot_x/y/z, rad) stored in every TPCGEOMCONTAINER layer, e.g. to run
++ * reconstruction with a perfect TPC instead of the survey position that the
++ * Tracking_Geometry CDB file was produced with.
++ *
++ * Must be registered BEFORE MakeActsGeometry (i.e. before TrackingInit()),
++ * since MakeActsGeometry::InitRun builds the TPC envelope<->world transform
++ * from these values.
++ */
++class TpcGeometryOverride : public SubsysReco
++{
++ public:
++  explicit TpcGeometryOverride(const std::string &name = "TpcGeometryOverride");
++  ~TpcGeometryOverride() override = default;
++
++  int InitRun(PHCompositeNode *topNode) override;
++
++  void set_place(double x, double y, double z)
++  {
++    m_place[0] = x;
++    m_place[1] = y;
++    m_place[2] = z;
++  }
++  void set_rot(double x, double y, double z)
++  {
++    m_rot[0] = x;
++    m_rot[1] = y;
++    m_rot[2] = z;
++  }
++
++  //! zero displacement and tilt
++  void set_perfect()
++  {
++    set_place(0, 0, 0);
++    set_rot(0, 0, 0);
++  }
++
++  //! survey position, same numbers as G4TPC::tpc_survey_position in G4_TrkrSimulation.C
++  void set_survey()
++  {
++    set_place(-1.6775 / 10.0, -0.336 / 10.0, -7.1365 / 10.0);
++    set_rot(-0.00029817, 0.0014833, 0.0);
++  }
++
++ private:
++  double m_place[3]{0, 0, 0};
++  double m_rot[3]{0, 0, 0};
++};
++
++#endif
+-- 
+2.34.1
+
